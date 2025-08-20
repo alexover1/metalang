@@ -1,7 +1,7 @@
 @echo off
 if not exist ..\build mkdir ..\build
 pushd ..\build
-echo * > .gitignore
+if not exist .gitignore echo * > .gitignore
 ctime -begin metalang.ctm
 call cl -nologo -Zi -FC ..\compiler\metalang.cpp -Femetalang_msvc_debug.exe
 rem call clang -g -fuse-ld=lld ..\metalang.cpp -o metalang_clang_debug.exe
