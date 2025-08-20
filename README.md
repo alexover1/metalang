@@ -9,4 +9,4 @@ cd compiler
 build.bat
 ```
 
-Then you should have an executable named `metalang_msvc_debug.exe` in the `compiler/build` directory.
+Then you should have an executable named `metalang_msvc_debug.exe` in the `build` directory.
