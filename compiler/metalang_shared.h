@@ -10,16 +10,34 @@
 
    ======================================================================== */
 
-#include <intrin.h>
+#define U8Max 255
+#define U16Max 65535
+#define S32Min ((s32)0x80000000)
+#define S32Max ((s32)0x7fffffff)
+#define U32Min 0
+#define U32Max ((u32)-1)
+#define U64Max ((u64)-1)
+#define F32Max FLT_MAX
+#define F32Min -FLT_MAX
 
-#define Assert(Expression) assert(Expression) // if(!(Expression)) {*(int volatile *)0 = 0;}
+#define UMMFromPointer(Pointer) ((umm)(Pointer))
+#define PointerFromUMM(type, Value) (type *)(Value)
+
+#define U32FromPointer(Pointer) ((u32)(memory_index)(Pointer))
+#define PointerFromU32(type, Value) (type *)((memory_index)Value)
+
+#define OffsetOf(type, Member) (umm)&(((type *)0)->Member)
+
+#define FILE_AND_LINE__(A, B) A "|" #B
+#define FILE_AND_LINE_(A, B) FILE_AND_LINE__(A, B)
+#define FILE_AND_LINE FILE_AND_LINE_(__FILE__, __LINE__)
 
 #define Kilobytes(Value) ((u64)(Value) << 10)
 #define Megabytes(Value) ((u64)(Value) << 20)
 #define Gigabytes(Value) ((u64)(Value) << 30)
 #define Terabytes(Value) ((u64)(Value) << 40)
 
-#define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
+#define Assert(Expression) assert(Expression) // if(!(Expression)) {*(int volatile *)0 = 0;}
 
 #define AlignPow2(Value, Alignment) ((Value + ((Alignment) - 1)) & ~((Alignment) - 1))
 #define Align4(Value) ((Value + 3) & ~3)

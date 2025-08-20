@@ -11,6 +11,27 @@
    ======================================================================== */
 
 #include "metalang.h"
+
+/* NOTE(alex): _CRT_SECURE_NO_WARNINGS is here because otherwise we cannot
+   call fopen(). If we replace fopen() with fopen_s() to avoid the warning,
+   then the code doesn't compile on Linux anymore, since fopen_s() does not
+   exist there.
+
+   What exactly the CRT maintainers were thinking when they made this choice,
+   I have no idea.
+*/
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <assert.h>
+#include <intrin.h>
+
+#include "metalang_shared.h"
+#include "metalang_tokenizer.h"
+#include "metalang_parser.h"
+
 #include "metalang_tokenizer.cpp"
 #include "metalang_parser.cpp"
 
@@ -55,7 +76,8 @@ int main(int ArgCount, char **Args)
             }
             else if(StringsAreEqual(FileName, "-version"))
             {
-                printf("Version: %s, built on %s\n", METALANG_VERSION, __DATE__);
+                u32 Version = METALANG_VERSION;
+                printf("Version: %s, built on %s\n", METALANG_VERSION_STRING, __DATE__);
             }
             else
             {
