@@ -39,10 +39,16 @@
 
 #define Assert(Expression) assert(Expression) // if(!(Expression)) {*(int volatile *)0 = 0;}
 
-#define AlignPow2(Value, Alignment) ((Value + ((Alignment) - 1)) & ~((Alignment) - 1))
+#define AlignPow2(Value, Alignment) (((Value) + ((Alignment) - 1)) & ~(((Value) - (Value)) + (Alignment) - 1))
 #define Align4(Value) ((Value + 3) & ~3)
 #define Align8(Value) ((Value + 7) & ~7)
 #define Align16(Value) ((Value + 15) & ~15)
+
+inline b32 IsPow2(u32 Value)
+{
+    b32 Result = ((Value & ~(Value - 1)) == Value);
+    return(Result);
+}
 
 #define Minimum(A, B) ((A < B) ? (A) : (B))
 #define Maximum(A, B) ((A > B) ? (A) : (B))
@@ -64,6 +70,64 @@ internal void *Copy(umm Size, void *SourceInit, void *DestInit)
     while(Size--) {*Dest++ = *Source++;}
 
     return(DestInit);
+}
+
+#define ZeroStruct(Instance) ZeroSize(sizeof(Instance), &(Instance))
+#define ZeroArray(Count, Pointer) ZeroSize((Count)*sizeof((Pointer)[0]), Pointer)
+internal void ZeroSize(umm Size, void *Ptr)
+{
+    u8 *Byte = (u8 *)Ptr;
+    while(Size--)
+    {
+        *Byte++ = 0;
+    }
+}
+
+#if COMPILER_MSVC
+
+inline u64 AtomicExchangeU64(u64 volatile *Value, u64 New)
+{
+    u64 Result = _InterlockedExchange64((__int64 volatile *)Value, New);
+
+    return(Result);
+}
+inline u64 AtomicAddU64(u64 volatile *Value, u64 Addend)
+{
+    // NOTE(alex): Returns the original value _prior_ to adding
+    u64 Result = _InterlockedExchangeAdd64((__int64 volatile *)Value, Addend);
+
+    return(Result);
+}
+
+#elif COMPILER_CLANG
+
+inline u64 AtomicExchangeU64(u64 volatile *Value, u64 New)
+{
+    u64 Result = __sync_lock_test_and_set(Value, New);
+
+    return(Result);
+}
+inline u64 AtomicAddU64(u64 volatile *Value, u64 Addend)
+{
+    // NOTE(alex): Returns the original value _prior_ to adding
+    u64 Result = __sync_fetch_and_add(Value, Addend);
+
+    return(Result);
+}
+
+#else
+#error This compiler is not supported
+#endif
+
+inline void BeginTicketMutex(ticket_mutex *Mutex)
+{
+    u64 Ticket = AtomicAddU64(&Mutex->Ticket, 1);
+    while(Ticket != Mutex->Serving) {_mm_pause();}
+}
+
+inline void EndTicketMutex(ticket_mutex *Mutex)
+{
+    AtomicAddU64(&Mutex->Serving, 1);
 }
 
 internal u32 StringLength(char *String)
@@ -814,4 +878,31 @@ internal umm FormatString(umm DestSize, char *Dest, char *Format, ...)
     va_end(ArgList);
 
     return(Result);
+}
+
+internal void SetDefaultFPBehavior(void)
+{
+#define FLUSH_TO_ZERO_BIT (1 << 15)
+#define ROUNDING_CONTROL_BITS (3 << 13)
+#define PRECISION_MASK (1 << 12)
+#define UNDERFLOW_MASK (1 << 11)
+#define OVERFLOW_MASK (1 << 10)
+#define DBZ_MASK (1 << 9)
+#define DENORMAL_OP_MASK (1 << 8)
+#define INVALID_OP_MASK (1 << 7)
+#define DENORMALS_ARE_ZERO (1 << 6)
+
+    unsigned int FPControlMask = (FLUSH_TO_ZERO_BIT |
+                                  // ROUNDING_CONTROL_BITS |
+                                  PRECISION_MASK |
+                                  UNDERFLOW_MASK |
+                                  OVERFLOW_MASK |
+                                  DBZ_MASK |
+                                  DENORMAL_OP_MASK |
+                                  INVALID_OP_MASK |
+                                  DENORMALS_ARE_ZERO);
+    unsigned int DesiredBits = FPControlMask;
+    unsigned int OldControlBits = _mm_getcsr();
+    unsigned int NewControlBits = (OldControlBits & ~FPControlMask) | DesiredBits;
+    _mm_setcsr(NewControlBits);
 }

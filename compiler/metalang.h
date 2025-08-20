@@ -35,6 +35,12 @@ typedef u32 umm;
 typedef s32 smm;
 #endif
 
+struct ticket_mutex
+{
+    u64 volatile Ticket;
+    u64 volatile Serving;
+};
+
 struct buffer
 {
     umm Count;

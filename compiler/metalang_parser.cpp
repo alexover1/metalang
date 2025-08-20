@@ -72,7 +72,7 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 {
     tokenizer *Tokenizer = &Tokenizer_;
 
-    parser *Parser = (parser *)calloc(1, sizeof(parser));
+    parser *Parser = BootstrapPushStruct(parser, Arena, DefaultBootstrapParams(), NoClear());
     routine_definition *Sentinel = &Parser->RoutineSentinel;
     Sentinel->Prev = Sentinel->Next = Sentinel;
 
@@ -128,7 +128,7 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 
             if(!Result)
             {
-                Result = (routine_definition *)malloc(sizeof(routine_definition));
+                Result = PushStruct(&Parser->Arena, routine_definition, NoClear());
                 *Result = Routine;
                 Result->NameHash = HashValue;
                 Result->Next = Sentinel;

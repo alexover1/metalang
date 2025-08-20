@@ -63,6 +63,7 @@ struct variable_definition
 
 struct parser
 {
+    memory_arena Arena;
     FILE *Stream;
 
     variable_definition Variables[64];

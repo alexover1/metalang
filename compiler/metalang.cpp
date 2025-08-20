@@ -23,12 +23,13 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdarg.h>
 #include <assert.h>
 #include <intrin.h>
 
+#include "metalang_platform.h"
 #include "metalang_shared.h"
+#include "metalang_memory.h"
 #include "metalang_tokenizer.h"
 #include "metalang_parser.h"
 
@@ -63,8 +64,17 @@ internal entire_file ReadEntireFile(char *FileName)
     return Result;
 }
 
+internal void ShowAvailableArguments(void)
+{
+    fprintf(stderr, "Available arguments:\n\n");
+    fprintf(stderr, "-exec            Executes the program immediately after compiling.\n");
+    fprintf(stderr, "-version         Print the version of the compiler.\n");
+}
+
 int main(int ArgCount, char **Args)
 {
+    SetDefaultFPBehavior();
+
     if(ArgCount > 1)
     {
         for(int ArgIndex = 1; ArgIndex < ArgCount; ++ArgIndex)
@@ -74,10 +84,13 @@ int main(int ArgCount, char **Args)
             if(StringsAreEqual(FileName, "-exec"))
             {
             }
+            else if(StringsAreEqual(FileName, "-help"))
+            {
+                ShowAvailableArguments();
+            }
             else if(StringsAreEqual(FileName, "-version"))
             {
-                u32 Version = METALANG_VERSION;
-                printf("Version: %s, built on %s\n", METALANG_VERSION_STRING, __DATE__);
+                fprintf(stderr, "Version: %s, built on %s\n", METALANG_VERSION_STRING, __DATE__);
             }
             else
             {
