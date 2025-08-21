@@ -31,9 +31,11 @@
 #include "metalang_shared.h"
 #include "metalang_memory.h"
 #include "metalang_tokenizer.h"
+#include "metalang_node.h"
 #include "metalang_parser.h"
 
 #include "metalang_tokenizer.cpp"
+#include "metalang_node.cpp"
 #include "metalang_parser.cpp"
 
 struct entire_file
@@ -100,8 +102,9 @@ int main(int ArgCount, char **Args)
                     tokenizer Tokenizer = Tokenize(BundleString(ReadResult.ContentsSize, (char *)ReadResult.Contents),
                                                    WrapZ(FileName));
                     parser *Parser = ParseTopLevelRoutines(Tokenizer);
-                    Parser->Stream = stdout;
+                    Parser->Stream = fopen("test.asm", "wb");
                     ParseAndGenerateProgram(Parser, Tokenizer);
+                    fclose(Parser->Stream);
                 }
             }
         }

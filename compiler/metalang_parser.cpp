@@ -30,6 +30,55 @@ internal void DebugTokens(tokenizer *Tokenizer)
     }
 }
 
+internal void DebugNode(node *Node)
+{
+    printf("%.*s", ExpandString(GetNodeTypeName(Node->Type)));
+
+    switch(Node->Type)
+    {
+        case Node_Start:
+        case Node_Return:
+        {
+            // NOTE(alex): These are control flow nodes that do not have any data associated with them.
+        } break;
+
+        case Node_Print:
+        {
+            printf(" ");
+            DebugNode(Node->Print.Data);
+        } break;
+
+        case Node_Constant:
+        {
+            printf(" %d", Node->Value);
+        } break;
+
+        case Node_Invalid:
+        case Node_Count:
+        {
+            // NOTE(alex): This should never actually happen, but if it does, it means somewhere
+            // something got cleared to zero or wasn't initialized properly, in which case
+            // we might want to assert or ignore the node.
+        } break;
+    }
+}
+
+internal node *GetOrCreateNode(parser *Parser, node_type Type)
+{
+    // TODO(alex): Hash table for looking up already created nodes!
+    node *Node = PushStruct(&Parser->Arena, node);
+    Node->Type = Type;
+
+    return Node;
+}
+
+internal type_id TypeIDFromToken(token Token)
+{
+    type_id Result = {StringHashOf(Token.Text)};
+
+    return(Result);
+}
+
 internal b32 SkipBalancedBlock(tokenizer *Tokenizer, token_type OpenType, token_type CloseType)
 {
     b32 Result = false;
@@ -61,13 +110,6 @@ internal b32 SkipBalancedBlock(tokenizer *Tokenizer, token_type OpenType, token_
     return Result;
 }
 
-internal type_id TypeIDFromToken(token Token)
-{
-    type_id Result = {StringHashOf(Token.Text)};
-
-    return(Result);
-}
-
 internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 {
     tokenizer *Tokenizer = &Tokenizer_;
@@ -75,6 +117,9 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
     parser *Parser = BootstrapPushStruct(parser, Arena, DefaultBootstrapParams(), NoClear());
     routine_definition *Sentinel = &Parser->RoutineSentinel;
     Sentinel->Prev = Sentinel->Next = Sentinel;
+
+    Parser->StartNode = Parser->CurrentControl = GetOrCreateNode(Parser, Node_Start);
+    Parser->ReturnNode = GetOrCreateNode(Parser, Node_Return);
 
     while(Parsing(Tokenizer))
     {
@@ -140,21 +185,6 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
             }
         }
     }
-
-#if 0
-    for(routine_definition *Routine = Sentinel->Next;
-        Routine != Sentinel;
-        Routine = Routine->Next)
-    {
-        printf("----------------------------------------\n");
-        if(IsValid(Routine->TypeToken))
-        {
-            DebugToken(Routine->TypeToken);
-        }
-        DebugToken(Routine->NameToken);
-        printf("----------------------------------------\n");
-    }
-#endif
 
     return Parser;
 }
@@ -235,6 +265,14 @@ internal void GenerateExpression(parser *Parser, tokenizer *Tokenizer, token Tok
 
             case Token_Number:
             {
+                node *Constant = GetOrCreateNode(Parser, Node_Constant);
+                Constant->Value = Token.S32;
+
+                node *PrintNode = GetOrCreateNode(Parser, Node_Print);
+                PrintNode->Print.Data = Constant;
+                PrintNode->Print.ControlPrev = Parser->CurrentControl;
+                Parser->CurrentControl = PrintNode;
+
                 fprintf(Parser->Stream, "mov rcx, %d\n", Token.S32);
                 fprintf(Parser->Stream, "call _PrintU64\n");
             } break;
@@ -525,6 +563,17 @@ internal void ParseAndGenerateProgram(parser *Parser, tokenizer Tokenizer_)
                 fprintf(Parser->Stream, "mov rsp, rbp\n");
                 fprintf(Parser->Stream, "pop rbp\n");
                 fprintf(Parser->Stream, "ret\n");
+
+                Parser->ReturnNode->Return.ControlPrev = Parser->CurrentControl;
+                Parser->CurrentControl = Parser->ReturnNode;
+
+                for(node *Node = Parser->ReturnNode;
+                    Node;
+                    Node = Node->Return.ControlPrev)
+                {
+                    DebugNode(Node);
+                    printf("\n");
+                }
             }
         }
     }

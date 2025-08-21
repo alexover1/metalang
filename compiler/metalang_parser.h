@@ -66,6 +66,10 @@ struct parser
     memory_arena Arena;
     FILE *Stream;
 
+    node *StartNode;
+    node *ReturnNode;
+    node *CurrentControl;
+
     variable_definition Variables[64];
     u32 VariableCount;
     u32 StackSize;
