@@ -54,6 +54,8 @@ typedef buffer string;
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
+#define Swap(type, A, B) do{type Temp_ = (A); A = (B); (B) = Temp_;}while(0)
+
 #define Stringify_(x) #x
 #define Stringify(x) Stringify_(x)
 

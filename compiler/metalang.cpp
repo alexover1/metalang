@@ -24,7 +24,6 @@
 
 #include <stdio.h>
 #include <stdarg.h>
-#include <assert.h>
 #include <intrin.h>
 
 #include "metalang_platform.h"

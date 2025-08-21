@@ -34,32 +34,19 @@ internal void DebugNode(node *Node)
 {
     printf("%.*s", ExpandString(GetNodeTypeName(Node->Type)));
 
-    switch(Node->Type)
+    for(u32 OperandIndex = 0; OperandIndex < ArrayCount(Node->Operands); ++OperandIndex)
     {
-        case Node_Start:
-        case Node_Return:
-        {
-            // NOTE(alex): These are control flow nodes that do not have any data associated with them.
-        } break;
-
-        case Node_Print:
+        node *Operand = Node->Operands[OperandIndex];
+        if(Operand)
         {
             printf(" ");
-            DebugNode(Node->Print.Data);
-        } break;
+            DebugNode(Operand);
+        }
+    }
 
-        case Node_Constant:
-        {
-            printf(" %d", Node->Value);
-        } break;
-
-        case Node_Invalid:
-        case Node_Count:
-        {
-            // NOTE(alex): This should never actually happen, but if it does, it means somewhere
-            // something got cleared to zero or wasn't initialized properly, in which case
-            // we might want to assert or ignore the node.
-        } break;
+    if(Node->Type == Node_Constant)
+    {
+        printf(" %d", Node->Value);
     }
 }
 
@@ -118,8 +105,8 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
     routine_definition *Sentinel = &Parser->RoutineSentinel;
     Sentinel->Prev = Sentinel->Next = Sentinel;
 
-    Parser->StartNode = Parser->CurrentControl = GetOrCreateNode(Parser, Node_Start);
-    Parser->ReturnNode = GetOrCreateNode(Parser, Node_Return);
+    Parser->StartNode = Parser->ControlNode = GetOrCreateNode(Parser, Node_Start);
+    Parser->EndNode = GetOrCreateNode(Parser, Node_End);
 
     while(Parsing(Tokenizer))
     {
@@ -224,6 +211,224 @@ internal variable_definition *GetVariable(parser *Parser, string Name)
     return Result;
 }
 
+internal node *Peephole(node *Node)
+{
+    node *Result = Node;
+
+    // TODO(alex): Decide what we want our strategy to be for freeing unused nodes.
+    // Right now, we are just leaking nodes anytime we perform a replacement of
+    // constant expressions. Ideally, we could put these on a free list so that
+    // whenever you call GetOrCreateNode, it just returns a previously allocated node.
+    // Another solution is to just reset the arena every time we finish parsing a
+    // procedure, since none of the procedure's nodes should really last any longer
+    // than after the procedure has been fully parsed and optimized. (This has an
+    // inherit assumption that the scheduling algorithm converts nodes into another
+    // format so that we don't have to keep storing the nodes).
+
+    switch(Node->Type)
+    {
+        case Node_Add:
+        {
+            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
+            {
+                s32 Value = Node->Operands[0]->Value + Node->Operands[1]->Value;
+                ZeroStruct(*Result);
+                Result->Type = Node_Constant;
+                Result->Value = Value;
+            }
+            else if(IsConstant(Node->Operands[0]) && !IsConstant(Node->Operands[1]))
+            {
+                node *Temp = Node->Operands[0];
+                Node->Operands[0] = Node->Operands[1];
+                Node->Operands[1] = Temp;
+            }
+        } break;
+
+        case Node_Mul:
+        {
+            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
+            {
+                s32 Value = Node->Operands[0]->Value * Node->Operands[1]->Value;
+                ZeroStruct(*Result);
+                Result->Type = Node_Constant;
+                Result->Value = Value;
+            }
+            else if(IsConstant(Node->Operands[0]) && !IsConstant(Node->Operands[1]))
+            {
+                node *Temp = Node->Operands[0];
+                Node->Operands[0] = Node->Operands[1];
+                Node->Operands[1] = Temp;
+            }
+        } break;
+
+        case Node_Neg:
+        {
+            if(IsConstant(Node->Operand))
+            {
+                s32 Value = -Node->Operand->Value;
+                ZeroStruct(*Result);
+                Result->Type = Node_Constant;
+                Result->Value = Value;
+            }
+        } break;
+    }
+
+    return Result;
+}
+
+internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);
+
+internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = 0;
+    token Token = GetToken(Tokenizer);
+
+    switch(Token.Type)
+    {
+        case Token_OpenParen:
+        {
+            Result = ParseExpression(Parser, Tokenizer);
+            RequireToken(Tokenizer, Token_CloseParen);
+        } break;
+
+        case Token_Number:
+        {
+            Result = GetOrCreateNode(Parser, Node_Constant);
+            Result->Value = Token.S32;
+        } break;
+
+        case Token_String:
+        {
+            Assert(!"Strings are not implement yet");
+        } break;
+
+        case Token_Identifier:
+        {
+            Assert(!"Identifiers are not implemented yet");
+        } break;
+
+        default:
+        {
+            Error(Tokenizer, Token, "Invalid expression");
+        } break;
+    }
+
+    return Result;
+}
+
+internal node *ParseUnaryOp(parser *Parser, tokenizer *Tokenizer)
+{
+    node_type OpType = Node_Invalid;
+    if(OptionalToken(Tokenizer, Token_Minus))
+    {
+        OpType = Node_Neg;
+    }
+
+    node *Result = ParsePrimaryExpression(Parser, Tokenizer);
+
+    if(Result && OpType)
+    {
+        node *UnaryOp = GetOrCreateNode(Parser, OpType);
+        UnaryOp->Operand = ParsePrimaryExpression(Parser, Tokenizer);
+        Result = Peephole(UnaryOp);
+    }
+
+    return Result;
+}
+
+internal node *ParseMultiplication(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = ParseUnaryOp(Parser, Tokenizer);
+    if(Result && OptionalToken(Tokenizer, Token_Asterisk))
+    {
+        node *BinaryOp = GetOrCreateNode(Parser, Node_Mul);
+        BinaryOp->Operands[0] = Result;
+        BinaryOp->Operands[1] = ParseMultiplication(Parser, Tokenizer);
+        Result = Peephole(BinaryOp);
+    }
+
+    return Result;
+}
+
+internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = ParseMultiplication(Parser, Tokenizer);
+    if(Result && OptionalToken(Tokenizer, Token_Plus))
+    {
+        node *BinaryOp = GetOrCreateNode(Parser, Node_Add);
+        BinaryOp->Operands[0] = Result;
+        BinaryOp->Operands[1] = ParseAddition(Parser, Tokenizer);
+        Result = Peephole(BinaryOp);
+    }
+
+    return Result;
+}
+
+internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = ParseAddition(Parser, Tokenizer);
+    return Result;
+}
+
+enum operator_precedence
+{
+    Precedence_None,
+    Precedence_Or,
+    Precedence_And,
+    Precedence_Equality,
+    Precedence_Comparison,
+    Precedence_Term,
+    Precedence_Factor,
+    Precedence_Unary,
+};
+internal u32 GetBinaryOpPrecedence(token_type Type)
+{
+    switch(Type)
+    {
+        case Token_Or: {return Precedence_Or;}
+        case Token_Plus:
+        case Token_Minus:
+        {
+            return Precedence_Term;
+        }
+        case Token_Asterisk:
+        {
+            return Precedence_Factor;
+        }
+    }
+
+    return Precedence_None;
+}
+
+#if 0
+internal node *ParsePrecedence(parser *Parser, tokenizer *Tokenizer, operator_precedence MinimumPrecedence)
+{
+    node *Node = ParsePrimaryExpression(Parser, Tokenizer);
+
+    while(Parsing(Tokenizer))
+    {
+        token Token = PeekToken(Tokenizer);
+        u32 NextPrecedence = GetBinaryOpPrecedence(Token.Type);
+        if(MinimumPrecedence >= NextPrecedence)
+        {
+            break;
+        }
+
+        node *Right = ParsePrecedence(Parser, Tokenizer, NextPrecedence);
+
+        GetToken(Tokenizer);
+        switch(Token.Type)
+        {
+            case
+        }
+
+        node *BinaryOp = GetOrCreateNode(Parser, Node_Add);
+    }
+
+    return Node;
+}
+#endif
+
 internal void GenerateExpression(parser *Parser, tokenizer *Tokenizer, token Token)
 {
     while(Parsing(Tokenizer))
@@ -269,9 +474,9 @@ internal void GenerateExpression(parser *Parser, tokenizer *Tokenizer, token Tok
                 Constant->Value = Token.S32;
 
                 node *PrintNode = GetOrCreateNode(Parser, Node_Print);
-                PrintNode->Print.Data = Constant;
-                PrintNode->Print.ControlPrev = Parser->CurrentControl;
-                Parser->CurrentControl = PrintNode;
+                PrintNode->Control.Data = Constant;
+                PrintNode->Control.Prev = Parser->ControlNode;
+                Parser->ControlNode = PrintNode;
 
                 fprintf(Parser->Stream, "mov rcx, %d\n", Token.S32);
                 fprintf(Parser->Stream, "call _PrintU64\n");
@@ -512,14 +717,14 @@ internal void ParseAndGenerateProgram(parser *Parser, tokenizer Tokenizer_)
         }
     }
 
-#if 0
-    if(!EntryPoint)
+    node *Node = ParseExpression(Parser, Tokenizer);
+    if(Node)
     {
-        // TODO(alex): Make the error printing routine more flexible so we don't have to hardcode this!
-        fprintf(stderr, "\x1b[1;31m%.*s\x1b[0m: Missing program entry point (entry point name is \"%.*s\")\n",
-                ExpandString(Tokenizer->FileName), ExpandString(EntryName));
+        DebugNode(Node);
+        printf("\n");
     }
-#endif
+
+    return;
 
     fprintf(Parser->Stream, "; %.*s disassembly:\n", ExpandString(Tokenizer->FileName));
     fprintf(Parser->Stream, "format PE64 console\n");
@@ -564,12 +769,12 @@ internal void ParseAndGenerateProgram(parser *Parser, tokenizer Tokenizer_)
                 fprintf(Parser->Stream, "pop rbp\n");
                 fprintf(Parser->Stream, "ret\n");
 
-                Parser->ReturnNode->Return.ControlPrev = Parser->CurrentControl;
-                Parser->CurrentControl = Parser->ReturnNode;
+                Parser->EndNode->Control.Prev = Parser->ControlNode;
+                Parser->ControlNode = Parser->EndNode;
 
-                for(node *Node = Parser->ReturnNode;
+                for(node *Node = Parser->EndNode;
                     Node;
-                    Node = Node->Return.ControlPrev)
+                    Node = Node->Control.Prev)
                 {
                     DebugNode(Node);
                     printf("\n");

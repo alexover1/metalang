@@ -141,6 +141,9 @@ internal token GetTokenRaw(tokenizer *Tokenizer)
         case '=': {Token.Type = Token_Equals;} break;
         case ',': {Token.Type = Token_Comma;} break;
         case '|': {Token.Type = Token_Or;} break;
+        case '&': {Token.Type = Token_And;} break;
+        case '+': {Token.Type = Token_Plus;} break;
+        case '-': {Token.Type = Token_Minus;} break;
         case '#': {Token.Type = Token_Pound;} break;
 
         case '"':

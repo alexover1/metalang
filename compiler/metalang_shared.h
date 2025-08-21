@@ -37,7 +37,7 @@
 #define Gigabytes(Value) ((u64)(Value) << 30)
 #define Terabytes(Value) ((u64)(Value) << 40)
 
-#define Assert(Expression) assert(Expression) // if(!(Expression)) {*(int volatile *)0 = 0;}
+#define Assert(Expression) if(!(Expression)) {*(int volatile *)0 = 0;}
 
 #define AlignPow2(Value, Alignment) (((Value) + ((Alignment) - 1)) & ~(((Value) - (Value)) + (Alignment) - 1))
 #define Align4(Value) ((Value + 3) & ~3)

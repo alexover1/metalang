@@ -67,8 +67,8 @@ struct parser
     FILE *Stream;
 
     node *StartNode;
-    node *ReturnNode;
-    node *CurrentControl;
+    node *EndNode;
+    node *ControlNode;
 
     variable_definition Variables[64];
     u32 VariableCount;

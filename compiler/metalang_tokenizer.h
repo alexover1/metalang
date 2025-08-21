@@ -28,6 +28,9 @@ enum token_type
     Token_Equals,
     Token_Comma,
     Token_Or,
+    Token_And,
+    Token_Plus,
+    Token_Minus,
     Token_Pound,
 
     Token_String,

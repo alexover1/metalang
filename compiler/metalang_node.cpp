@@ -15,7 +15,7 @@ internal string GetNodeTypeName(node_type Type)
     switch(Type)
     {
         case Node_Start: {return BundleZ("start"); }
-        case Node_Return: {return BundleZ("return"); }
+        case Node_End: {return BundleZ("end"); }
         case Node_Print: {return BundleZ("print"); }
         case Node_Constant: {return BundleZ("constant");}
         case Node_Add: {return BundleZ("add");}

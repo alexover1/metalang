@@ -18,7 +18,7 @@ enum node_type
     // NOTE(alex): Control nodes
     //
     Node_Start,
-    Node_Return,
+    Node_End,
     Node_Print,
 
     //
@@ -38,31 +38,10 @@ enum node_type
 
 struct node;
 
-struct node_return
+struct node_control
 {
-    node *ControlPrev;
+    node *Prev;
     node *Data;
-};
-
-struct node_print
-{
-    node *ControlPrev;
-    node *Data;
-};
-
-struct node_constant
-{
-    node *Start;
-};
-
-struct node_binary_op
-{
-    node *Operands[2];
-};
-
-struct node_unary_op
-{
-    node *Operand;
 };
 
 struct node
@@ -71,21 +50,21 @@ struct node
     s32 Value;
     union
     {
-        node *Inputs;
-        node_return Return;
-        node_print Print;
-        node_constant Constant;
-        node_binary_op BinaryOp;
+        node *Array;
+        node *Operand;
+        node *Operands[2];
+        node_control Control;
     };
 };
 
+#define IsConstant(Node) ((Node)->Type == Node_Constant)
 #define IsControl(Node) ((Node)->Type < Node_Constant)
 #define IsData(Node) ((Node)->Type >= Node_Constant)
 
-#define MAX_NODE_INPUT_COUNT ((sizeof(node) - OffsetOf(node, Inputs)) / sizeof(node *))
-inline node *GetInput(node *Node, u32 InputIndex)
+#define MAX_NODE_EDGE_COUNT ((sizeof(node) - OffsetOf(node, Array)) / sizeof(node *))
+inline node *GetEdge(node *Node, u32 EdgeIndex)
 {
-    Assert(InputIndex < MAX_NODE_INPUT_COUNT);
-    node *Result = (&Node->Inputs)[InputIndex];
+    Assert(EdgeIndex < MAX_NODE_EDGE_COUNT);
+    node *Result = (&Node->Array)[EdgeIndex];
     return Result;
 }

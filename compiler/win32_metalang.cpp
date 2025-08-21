@@ -15,7 +15,6 @@
 #include <windows.h>
 #include <stdarg.h>
 #include <intrin.h>
-#include <assert.h>
 
 #include "metalang_shared.h"
 #include "metalang_platform.h"
