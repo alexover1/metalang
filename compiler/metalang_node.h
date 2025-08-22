@@ -31,6 +31,13 @@ enum node_type
     Node_Mul,
     Node_Div,
 
+    Node_EQ,
+    Node_NE,
+    Node_LE,
+    Node_LT,
+    Node_GE,
+    Node_GT,
+
     Node_Neg,
 
     Node_Count,
@@ -47,6 +54,7 @@ struct node_control
 struct node
 {
     node_type Type;
+    u32 RefCount;
     s32 Value;
     union
     {
@@ -54,6 +62,7 @@ struct node
         node *Operand;
         node *Operands[2];
         node_control Control;
+        node *NextFree;
     };
 };
 

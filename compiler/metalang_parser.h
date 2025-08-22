@@ -71,6 +71,8 @@ struct parser
     node *EndNode;
     node *ControlNode;
 
+    node *FirstFreeNode;
+
     variable_definition Variables[64];
     u32 VariableCount;
     u32 StackSize;
@@ -86,3 +88,5 @@ struct parser
 
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);
 internal void ParseStatement(parser *Parser, tokenizer *Tokenizer);
+internal void AddReference(parser *Parser, node *Node);
+internal void RemoveReference(parser *Parser, node *Node);

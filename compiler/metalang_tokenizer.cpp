@@ -23,9 +23,15 @@ internal string GetTokenTypeName(token_type Type)
         case Token_CloseBracket: {return BundleZ("close bracket");}
         case Token_OpenBrace: {return BundleZ("open brace");}
         case Token_CloseBrace: {return BundleZ("close brace");}
+        case Token_OpenAngleBracket: {return BundleZ("open angle bracket");}
+        case Token_CloseAngleBracket: {return BundleZ("close angle bracket");}
         case Token_Equals: {return BundleZ("equals");}
         case Token_Comma: {return BundleZ("comma");}
+        case Token_Not: {return BundleZ("not");}
         case Token_Or: {return BundleZ("or");}
+        case Token_And: {return BundleZ("and");}
+        case Token_Plus: {return BundleZ("plus");}
+        case Token_Minus: {return BundleZ("minus");}
         case Token_Pound: {return BundleZ("pound");}
         case Token_String: {return BundleZ("string");}
         case Token_Identifier: {return BundleZ("identifier");}
@@ -138,8 +144,11 @@ internal token GetTokenRaw(tokenizer *Tokenizer)
         case ']': {Token.Type = Token_CloseBracket;} break;
         case '{': {Token.Type = Token_OpenBrace;} break;
         case '}': {Token.Type = Token_CloseBrace;} break;
+        case '<': {Token.Type = Token_OpenAngleBracket;} break;
+        case '>': {Token.Type = Token_CloseAngleBracket;} break;
         case '=': {Token.Type = Token_Equals;} break;
         case ',': {Token.Type = Token_Comma;} break;
+        case '!': {Token.Type = Token_Not;} break;
         case '|': {Token.Type = Token_Or;} break;
         case '&': {Token.Type = Token_And;} break;
         case '+': {Token.Type = Token_Plus;} break;
@@ -385,6 +394,18 @@ internal b32 OptionalToken(tokenizer *Tokenizer, token_type DesiredType)
     if(Result)
     {
         GetToken(Tokenizer);
+    }
+
+    return Result;
+}
+
+internal b32 OptionalTokenRaw(tokenizer *Tokenizer, token_type DesiredType)
+{
+    token Token = PeekTokenRaw(Tokenizer);
+    b32 Result = (Token.Type == DesiredType);
+    if(Result)
+    {
+        GetTokenRaw(Tokenizer);
     }
 
     return Result;

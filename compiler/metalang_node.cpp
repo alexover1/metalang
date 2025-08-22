@@ -22,6 +22,12 @@ internal string GetNodeTypeName(node_type Type)
         case Node_Sub: {return BundleZ("sub");}
         case Node_Mul: {return BundleZ("mul");}
         case Node_Div: {return BundleZ("div");}
+        case Node_EQ: {return BundleZ("eq");}
+        case Node_NE: {return BundleZ("ne");}
+        case Node_LE: {return BundleZ("le");}
+        case Node_LT: {return BundleZ("lt");}
+        case Node_GE: {return BundleZ("ge");}
+        case Node_GT: {return BundleZ("gt");}
         case Node_Neg: {return BundleZ("neg");}
     }
 

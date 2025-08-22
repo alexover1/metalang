@@ -51,15 +51,79 @@ internal void DebugNode(node *Node)
             printf(" %d", Node->Value);
         }
     }
+    else
+    {
+        Assert(IsControl(Node));
+        if(Node->Control.Data)
+        {
+            printf(" ");
+            DebugNode(Node->Control.Data);
+        }
+    }
 }
 
 internal node *GetOrCreateNode(parser *Parser, node_type Type)
 {
-    // TODO(alex): Hash table for looking up already created nodes!
-    node *Node = PushStruct(&Parser->Arena, node);
-    Node->Type = Type;
+    if(!Parser->FirstFreeNode)
+    {
+        Parser->FirstFreeNode = PushStruct(&Parser->Arena, node, NoClear());
+        Parser->FirstFreeNode->NextFree = 0;
+    }
 
-    return Node;
+    // TODO(alex): Hash table for looking up already created nodes!
+    node *Result = Parser->FirstFreeNode;
+    Parser->FirstFreeNode = Result->NextFree;
+
+    ZeroStruct(*Result);
+    Result->Type = Type;
+
+    return Result;
+}
+
+internal void AddReference(parser *Parser, node *Node)
+{
+    ++Node->RefCount;
+}
+
+internal void FreeNode(parser *Parser, node *Node)
+{
+    Node->NextFree = Parser->FirstFreeNode;
+    Parser->FirstFreeNode = Node;
+}
+
+internal void RemoveReferences(parser *Parser, node *Node)
+{
+    if(IsData(Node))
+    {
+        for(u32 OperandIndex = 0; OperandIndex < ArrayCount(Node->Operands); ++OperandIndex)
+        {
+            node *Operand = Node->Operands[OperandIndex];
+            if(Operand)
+            {
+                RemoveReference(Parser, Operand);
+            }
+        }
+    }
+    else
+    {
+        Assert(IsControl(Node));
+        if(Node->Control.Data)
+        {
+            RemoveReference(Parser, Node->Control.Data);
+        }
+    }
+}
+
+internal void RemoveReference(parser *Parser, node *Node)
+{
+    Assert(Node->RefCount > 0);
+    --Node->RefCount;
+
+    if(Node->RefCount == 0)
+    {
+        RemoveReferences(Parser, Node);
+        FreeNode(Parser, Node);
+    }
 }
 
 internal type_id TypeIDFromToken(token Token)
@@ -214,7 +278,21 @@ internal variable_definition *GetVariable(parser *Parser, string Name)
     return Result;
 }
 
-internal node *Peephole(node *Node)
+internal u32 GetArity(node *Node)
+{
+    u32 Count = 0;
+    for(u32 OperandIndex = 0; OperandIndex < ArrayCount(Node->Operands); ++OperandIndex)
+    {
+        node *Operand = Node->Operands[OperandIndex];
+        if(Operand)
+        {
+            ++Count;
+        }
+    }
+    return Count;
+}
+
+internal node *Peephole(parser *Parser, node *Node)
 {
     node *Result = Node;
 
@@ -235,15 +313,10 @@ internal node *Peephole(node *Node)
             if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
             {
                 s32 Value = Node->Operands[0]->Value + Node->Operands[1]->Value;
+                RemoveReferences(Parser, Node);
                 ZeroStruct(*Result);
                 Result->Type = Node_Constant;
                 Result->Value = Value;
-            }
-            else if(IsConstant(Node->Operands[0]) && !IsConstant(Node->Operands[1]))
-            {
-                node *Temp = Node->Operands[0];
-                Node->Operands[0] = Node->Operands[1];
-                Node->Operands[1] = Temp;
             }
         } break;
 
@@ -252,15 +325,10 @@ internal node *Peephole(node *Node)
             if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
             {
                 s32 Value = Node->Operands[0]->Value - Node->Operands[1]->Value;
+                RemoveReferences(Parser, Node);
                 ZeroStruct(*Result);
                 Result->Type = Node_Constant;
                 Result->Value = Value;
-            }
-            else if(IsConstant(Node->Operands[0]) && !IsConstant(Node->Operands[1]))
-            {
-                node *Temp = Node->Operands[0];
-                Node->Operands[0] = Node->Operands[1];
-                Node->Operands[1] = Temp;
             }
         } break;
 
@@ -269,15 +337,22 @@ internal node *Peephole(node *Node)
             if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
             {
                 s32 Value = Node->Operands[0]->Value * Node->Operands[1]->Value;
+                RemoveReferences(Parser, Node);
                 ZeroStruct(*Result);
                 Result->Type = Node_Constant;
                 Result->Value = Value;
             }
-            else if(IsConstant(Node->Operands[0]) && !IsConstant(Node->Operands[1]))
+        } break;
+
+        case Node_EQ:
+        {
+            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
             {
-                node *Temp = Node->Operands[0];
-                Node->Operands[0] = Node->Operands[1];
-                Node->Operands[1] = Temp;
+                s32 Value = Node->Operands[0]->Value == Node->Operands[1]->Value;
+                RemoveReferences(Parser, Node);
+                ZeroStruct(*Result);
+                Result->Type = Node_Constant;
+                Result->Value = Value;
             }
         } break;
 
@@ -286,11 +361,24 @@ internal node *Peephole(node *Node)
             if(IsConstant(Node->Operand))
             {
                 s32 Value = -Node->Operand->Value;
+                RemoveReferences(Parser, Node);
                 ZeroStruct(*Result);
                 Result->Type = Node_Constant;
                 Result->Value = Value;
             }
         } break;
+    }
+
+    if(IsData(Result))
+    {
+        u32 Arity = GetArity(Result);
+        if((Arity == 2) &&
+           IsConstant(Result->Operands[0]) && !IsConstant(Result->Operands[1]))
+        {
+            node *Temp = Result->Operands[0];
+            Result->Operands[0] = Result->Operands[1];
+            Result->Operands[1] = Temp;
+        }
     }
 
     return Result;
@@ -356,7 +444,8 @@ internal node *ParseUnaryOp(parser *Parser, tokenizer *Tokenizer)
     {
         node *UnaryOp = GetOrCreateNode(Parser, OpType);
         UnaryOp->Operand = ParsePrimaryExpression(Parser, Tokenizer);
-        Result = Peephole(UnaryOp);
+        AddReference(Parser, UnaryOp->Operand);
+        Result = Peephole(Parser, UnaryOp);
     }
 
     return Result;
@@ -370,7 +459,9 @@ internal node *ParseMultiplication(parser *Parser, tokenizer *Tokenizer)
         node *BinaryOp = GetOrCreateNode(Parser, Node_Mul);
         BinaryOp->Operands[0] = Result;
         BinaryOp->Operands[1] = ParseMultiplication(Parser, Tokenizer);
-        Result = Peephole(BinaryOp);
+        AddReference(Parser, BinaryOp->Operands[0]);
+        AddReference(Parser, BinaryOp->Operands[1]);
+        Result = Peephole(Parser, BinaryOp);
     }
 
     return Result;
@@ -395,7 +486,38 @@ internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
         node *BinaryOp = GetOrCreateNode(Parser, OpType);
         BinaryOp->Operands[0] = Result;
         BinaryOp->Operands[1] = ParseAddition(Parser, Tokenizer);
-        Result = Peephole(BinaryOp);
+        AddReference(Parser, BinaryOp->Operands[0]);
+        AddReference(Parser, BinaryOp->Operands[1]);
+        Result = Peephole(Parser, BinaryOp);
+    }
+
+    return Result;
+}
+
+internal node *ParseComparison(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = ParseAddition(Parser, Tokenizer);
+
+    node_type OpType = Node_Invalid;
+    if(OptionalToken(Tokenizer, Token_OpenAngleBracket))
+    {
+        b32 HasEquals = OptionalTokenRaw(Tokenizer, Token_Equals);
+        OpType = HasEquals ? Node_LE : Node_LT;
+    }
+    else if(OptionalToken(Tokenizer, Token_CloseAngleBracket))
+    {
+        b32 HasEquals = OptionalTokenRaw(Tokenizer, Token_Equals);
+        OpType = HasEquals ? Node_GE : Node_GT;
+    }
+
+    if(Result && OpType)
+    {
+        node *BinaryOp = GetOrCreateNode(Parser, OpType);
+        BinaryOp->Operands[0] = Result;
+        BinaryOp->Operands[1] = ParseComparison(Parser, Tokenizer);
+        AddReference(Parser, BinaryOp->Operands[0]);
+        AddReference(Parser, BinaryOp->Operands[1]);
+        Result = Peephole(Parser, BinaryOp);
     }
 
     return Result;
@@ -404,7 +526,7 @@ internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
 #if 0
 internal node *ParseAssignment(parser *Parser, tokenizer *Tokenizer)
 {
-    node *Result = ParseAddition(Parser, Tokenizer);
+    node *Result = ParseComparison(Parser, Tokenizer);
     if(Result && OptionalToken(Tokenizer, Token_Plus))
     {
 
@@ -416,7 +538,7 @@ internal node *ParseAssignment(parser *Parser, tokenizer *Tokenizer)
 
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)
 {
-    node *Result = ParseAddition(Parser, Tokenizer);
+    node *Result = ParseComparison(Parser, Tokenizer);
     return Result;
 }
 
@@ -471,12 +593,14 @@ internal void ParseBlock(parser *Parser, tokenizer *Tokenizer)
             if(OptionalToken(Tokenizer, Token_Equals))
             {
                 Variable->Value = ParseExpression(Parser, Tokenizer);
+                AddReference(Parser, Variable->Value);
             }
             else
             {
                 node *Constant = GetOrCreateNode(Parser, Node_Constant);
                 Constant->Value = 0;
                 Variable->Value = Constant;
+                AddReference(Parser, Variable->Value);
             }
 
             RequireToken(Tokenizer, Token_Semicolon);
@@ -505,9 +629,11 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
 {
     node *Result = 0;
 
-    token Token = RequireToken(Tokenizer, Token_Identifier);
+    token Token = PeekToken(Tokenizer);
     if(Token.Type == Token_Identifier)
     {
+        GetToken(Tokenizer);
+
         variable_definition *Variable = GetVariable(Parser, Token.Text);
         if(!Variable)
         {
@@ -519,13 +645,25 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
             node *RHS = ParseExpression(Parser, Tokenizer);
             if(Variable)
             {
+                RemoveReference(Parser, Variable->Value);
                 Variable->Value = RHS;
+                AddReference(Parser, Variable->Value);
             }
         }
         else
         {
             Result = Variable->Value;
         }
+    }
+    else
+    {
+        node *Print = GetOrCreateNode(Parser, Node_Print);
+        Print->Control.Data = ParseExpression(Parser, Tokenizer);
+        AddReference(Parser, Print->Control.Data);
+        Print->Control.Prev = Parser->ControlNode;
+        Parser->ControlNode = Print;
+
+        Result = Print;
     }
 
     // TODO(alex): I wanted to just call ParseExpression here and to implement
