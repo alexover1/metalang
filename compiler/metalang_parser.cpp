@@ -247,6 +247,23 @@ internal node *Peephole(node *Node)
             }
         } break;
 
+        case Node_Sub:
+        {
+            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
+            {
+                s32 Value = Node->Operands[0]->Value - Node->Operands[1]->Value;
+                ZeroStruct(*Result);
+                Result->Type = Node_Constant;
+                Result->Value = Value;
+            }
+            else if(IsConstant(Node->Operands[0]) && !IsConstant(Node->Operands[1]))
+            {
+                node *Temp = Node->Operands[0];
+                Node->Operands[0] = Node->Operands[1];
+                Node->Operands[1] = Temp;
+            }
+        } break;
+
         case Node_Mul:
         {
             if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
@@ -362,9 +379,20 @@ internal node *ParseMultiplication(parser *Parser, tokenizer *Tokenizer)
 internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
 {
     node *Result = ParseMultiplication(Parser, Tokenizer);
-    if(Result && OptionalToken(Tokenizer, Token_Plus))
+
+    node_type OpType = Node_Invalid;
+    if(OptionalToken(Tokenizer, Token_Plus))
     {
-        node *BinaryOp = GetOrCreateNode(Parser, Node_Add);
+        OpType = Node_Add;
+    }
+    else if(OptionalToken(Tokenizer, Token_Minus))
+    {
+        OpType = Node_Sub;
+    }
+
+    if(Result && OpType)
+    {
+        node *BinaryOp = GetOrCreateNode(Parser, OpType);
         BinaryOp->Operands[0] = Result;
         BinaryOp->Operands[1] = ParseAddition(Parser, Tokenizer);
         Result = Peephole(BinaryOp);
