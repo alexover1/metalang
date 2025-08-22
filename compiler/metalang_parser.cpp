@@ -34,19 +34,22 @@ internal void DebugNode(node *Node)
 {
     printf("%.*s", ExpandString(GetNodeTypeName(Node->Type)));
 
-    for(u32 OperandIndex = 0; OperandIndex < ArrayCount(Node->Operands); ++OperandIndex)
+    if(IsData(Node))
     {
-        node *Operand = Node->Operands[OperandIndex];
-        if(Operand)
+        for(u32 OperandIndex = 0; OperandIndex < ArrayCount(Node->Operands); ++OperandIndex)
         {
-            printf(" ");
-            DebugNode(Operand);
+            node *Operand = Node->Operands[OperandIndex];
+            if(Operand)
+            {
+                printf(" ");
+                DebugNode(Operand);
+            }
         }
-    }
 
-    if(Node->Type == Node_Constant)
-    {
-        printf(" %d", Node->Value);
+        if(Node->Type == Node_Constant)
+        {
+            printf(" %d", Node->Value);
+        }
     }
 }
 
@@ -276,8 +279,6 @@ internal node *Peephole(node *Node)
     return Result;
 }
 
-internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);
-
 internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
 {
     node *Result = 0;
@@ -291,6 +292,19 @@ internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
             RequireToken(Tokenizer, Token_CloseParen);
         } break;
 
+        case Token_Identifier:
+        {
+            variable_definition *Variable = GetVariable(Parser, Token.Text);
+            if(Variable)
+            {
+                Result = Variable->Value;
+            }
+            else
+            {
+                Error(Tokenizer, Token, "Undeclared variable");
+            }
+        } break;
+
         case Token_Number:
         {
             Result = GetOrCreateNode(Parser, Node_Constant);
@@ -300,11 +314,6 @@ internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
         case Token_String:
         {
             Assert(!"Strings are not implement yet");
-        } break;
-
-        case Token_Identifier:
-        {
-            Assert(!"Identifiers are not implemented yet");
         } break;
 
         default:
@@ -364,12 +373,170 @@ internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
     return Result;
 }
 
+#if 0
+internal node *ParseAssignment(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = ParseAddition(Parser, Tokenizer);
+    if(Result && OptionalToken(Tokenizer, Token_Plus))
+    {
+
+    }
+
+    return Result;
+}
+#endif
+
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)
 {
     node *Result = ParseAddition(Parser, Tokenizer);
     return Result;
 }
 
+internal void ParseBlock(parser *Parser, tokenizer *Tokenizer)
+{
+    u32 SavedVariableCount = Parser->VariableCount;
+
+    while(Parsing(Tokenizer))
+    {
+        token Token = PeekToken(Tokenizer);
+        if((Token.Type == Token_EndOfStream) ||
+           (Token.Type == Token_CloseBrace))
+        {
+            RequireToken(Tokenizer, Token_CloseBrace);
+            break;
+        }
+
+        // TODO(alex): We could make tokenizer have a "save point" so
+        // that we don't have to clone the entire structure in order
+        // to do this kind of speculative parsing, especially since
+        // we are doing this cloning for every statement.
+        // TODO(alex): By this point, we should know which identifiers
+        // refer to types, in which case we can drive the parsing by
+        // whether or not we see a type at statement level and avoid
+        // doing this save/restore stuff!!!
+        tokenizer Temp = *Tokenizer;
+
+        token Token1 = GetToken(&Temp);
+        token Token2 = GetToken(&Temp);
+        if((Token1.Type == Token_Identifier) &&
+           (Token2.Type == Token_Identifier))
+        {
+            token TypeToken = GetToken(Tokenizer);
+            token NameToken = GetToken(Tokenizer);
+
+            variable_definition *Variable = AddVariable(Parser, NameToken.Text, 4);
+
+            for(u32 VariableIndex = SavedVariableCount;
+                VariableIndex < (Parser->VariableCount - 1);
+                ++VariableIndex)
+            {
+                variable_definition *TestVariable = Parser->Variables + VariableIndex;
+                if((Variable->NameHash == TestVariable->NameHash) &&
+                   StringsAreEqual(Variable->Name, TestVariable->Name))
+                {
+                    Error(Tokenizer, NameToken, "Redeclaration of variable");
+//                            Error(Tokenizer, NameToken, "Original variable was declared here");
+                }
+            }
+
+            node *Value = 0;
+            if(OptionalToken(Tokenizer, Token_Equals))
+            {
+                Variable->Value = ParseExpression(Parser, Tokenizer);
+            }
+            else
+            {
+                node *Constant = GetOrCreateNode(Parser, Node_Constant);
+                Constant->Value = 0;
+                Variable->Value = Constant;
+            }
+
+            RequireToken(Tokenizer, Token_Semicolon);
+        }
+        else
+        {
+            ParseStatement(Parser, Tokenizer);
+        }
+    }
+
+    for(u32 VariableIndex = SavedVariableCount;
+        VariableIndex < Parser->VariableCount;
+        ++VariableIndex)
+    {
+        variable_definition *Variable = Parser->Variables + VariableIndex;
+        printf("%.*s = ", ExpandString(Variable->Name));
+        DebugNode(Variable->Value);
+        printf("\n");
+    }
+
+    Parser->VariableCount = SavedVariableCount;
+}
+
+// NOTE(alex): Parse expression being used at statement level
+internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
+{
+    node *Result = 0;
+
+    token Token = RequireToken(Tokenizer, Token_Identifier);
+    if(Token.Type == Token_Identifier)
+    {
+        variable_definition *Variable = GetVariable(Parser, Token.Text);
+        if(!Variable)
+        {
+            Error(Tokenizer, Token, "Undeclared variable");
+        }
+
+        if(OptionalToken(Tokenizer, Token_Equals))
+        {
+            node *RHS = ParseExpression(Parser, Tokenizer);
+            if(Variable)
+            {
+                Variable->Value = RHS;
+            }
+        }
+        else
+        {
+            Result = Variable->Value;
+        }
+    }
+
+    // TODO(alex): I wanted to just call ParseExpression here and to implement
+    // assignment as a binary operator to allow chaining assignments like in C.
+    // However, it was not clear as of 8/21/25 how to do this and pass down the
+    // proper information to the assignment operator. Let me explain in more detail:
+    //
+    // When we call ParseExpression and see an identifier, we immediately look up
+    // the identifier in its scope and find what node it refers to. This is good
+    // because it allows us to quickly see if we can inline a variable and get rid
+    // of it, but it is bad because now later in the call stack we do not have any
+    // information about the variable (i.e. in the expression `x=5;` by the time
+    // we get to `=` we have already replaced `x` with whatever its original value
+    // was).
+
+//    ParseExpression(Parser, Tokenizer);
+
+    RequireToken(Tokenizer, Token_Semicolon);
+
+    return Result;
+}
+
+internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
+{
+    if(OptionalToken(Tokenizer, Token_OpenBrace))
+    {
+        ParseBlock(Parser, Tokenizer);
+    }
+    else if(OptionalToken(Tokenizer, Token_Semicolon))
+    {
+        // NOTE(alex): Empty statement
+    }
+    else
+    {
+        ParseExpressionStatement(Parser, Tokenizer);
+    }
+}
+
+#if 0
 enum operator_precedence
 {
     Precedence_None,
@@ -400,7 +567,6 @@ internal u32 GetBinaryOpPrecedence(token_type Type)
     return Precedence_None;
 }
 
-#if 0
 internal node *ParsePrecedence(parser *Parser, tokenizer *Tokenizer, operator_precedence MinimumPrecedence)
 {
     node *Node = ParsePrimaryExpression(Parser, Tokenizer);
@@ -717,6 +883,7 @@ internal void ParseAndGenerateProgram(parser *Parser, tokenizer Tokenizer_)
         }
     }
 
+#if 0
     node *Node = ParseExpression(Parser, Tokenizer);
     if(Node)
     {
@@ -725,6 +892,7 @@ internal void ParseAndGenerateProgram(parser *Parser, tokenizer Tokenizer_)
     }
 
     return;
+#endif
 
     fprintf(Parser->Stream, "; %.*s disassembly:\n", ExpandString(Tokenizer->FileName));
     fprintf(Parser->Stream, "format PE64 console\n");
@@ -763,7 +931,8 @@ internal void ParseAndGenerateProgram(parser *Parser, tokenizer Tokenizer_)
                 fprintf(Parser->Stream, "push rbp\n");
                 fprintf(Parser->Stream, "mov rbp, rsp\n");
 
-                GenerateBlock(Parser, Tokenizer);
+                ParseBlock(Parser, Tokenizer);
+                // GenerateBlock(Parser, Tokenizer);
 
                 fprintf(Parser->Stream, "mov rsp, rbp\n");
                 fprintf(Parser->Stream, "pop rbp\n");

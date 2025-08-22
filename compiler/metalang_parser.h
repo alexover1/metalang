@@ -59,6 +59,7 @@ struct variable_definition
     u32 NameHash;
     u32 Size;
     u32 Offset;
+    node *Value;
 };
 
 struct parser
@@ -82,3 +83,6 @@ struct parser
     u8 DataSegment[Kilobytes(4)];
     u32 DataSize;
 };
+
+internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);
+internal void ParseStatement(parser *Parser, tokenizer *Tokenizer);
