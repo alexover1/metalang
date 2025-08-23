@@ -736,6 +736,66 @@ internal node *ParseComparison(parser *Parser, tokenizer *Tokenizer)
 {
     node *Result = ParseAddition(Parser, Tokenizer);
 
+    node_type OpType = Node_Invalid;
+    b32 Flip = false;
+
+    tokenizer Temp = *Tokenizer;
+
+    token Token1 = GetToken(&Temp);
+    token Token2 = GetTokenRaw(&Temp);
+    b32 HasEquals = (Token2.Type == Token_Equals);
+
+    switch(Token1.Type)
+    {
+        case Token_Equals:
+        {
+            if(HasEquals)
+            {
+                OpType = Node_EQ;
+            }
+        } break;
+
+        case Token_Not:
+        {
+            if(HasEquals)
+            {
+                OpType = Node_NE;
+            }
+        } break;
+
+        case Token_OpenAngleBracket:
+        {
+            OpType = HasEquals ? Node_LE : Node_LT;
+        } break;
+
+        case Token_CloseAngleBracket:
+        {
+            OpType = HasEquals ? Node_LE : Node_LT;
+            Flip = true;
+        } break;
+    }
+
+    if(Result && OpType)
+    {
+        GetToken(Tokenizer);
+        if(HasEquals)
+        {
+            GetTokenRaw(Tokenizer);
+        }
+
+        node *LHS = Result;
+        node *RHS = ParseComparison(Parser, Tokenizer);
+        if(Flip)
+        {
+            LHS = RHS;
+            RHS = Result;
+        }
+
+        node *BinaryOp = GetOrCreateNode(Parser, OpType, LHS, RHS);
+        Result = Peephole(Parser, BinaryOp);
+    }
+
+#if 0
     token Token = PeekToken(Tokenizer);
     if((Token.Type == Token_OpenAngleBracket) ||
        (Token.Type == Token_CloseAngleBracket))
@@ -758,6 +818,7 @@ internal node *ParseComparison(parser *Parser, tokenizer *Tokenizer)
             Result = Peephole(Parser, BinaryOp);
         }
     }
+#endif
 
     return Result;
 }
@@ -865,7 +926,8 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
     token Token1 = GetToken(&Temp);
     token Token2 = GetToken(&Temp);
     if((Token1.Type == Token_Identifier) &&
-       (Token2.Type == Token_Equals))
+       (Token2.Type == Token_Equals) &&
+       (PeekTokenRaw(&Temp).Type != Token_Equals))
     {
         token NameToken = GetToken(Tokenizer);
         token EqualsToken = GetToken(Tokenizer);
