@@ -82,16 +82,15 @@ internal void DebugNode(node *Node)
     }
 }
 
-internal variable_definition *AddVariable(parser *Parser, string Name, u32 Size)
+internal variable_definition *AddVariable(parser *Parser, string Name, node *Value)
 {
     Assert(Parser->VariableCount < ArrayCount(Parser->Variables));
 
     variable_definition *Variable = Parser->Variables + Parser->VariableCount++;
     Variable->Name = Name;
     Variable->NameHash = StringHashOf(Name);
-    Variable->Size = Size;
-    Variable->Offset = Parser->StackSize;
-    Parser->StackSize += Align16(Size);
+    Variable->Value = Value;
+    AddReference(Parser, Value);
 
     return Variable;
 }
@@ -284,11 +283,13 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
     Parser->StartNode = Parser->ControlNode = GetOrCreateNode(Parser, Node_Start);
     Parser->EndNode = GetOrCreateNode(Parser, Node_End);
 
-    variable_definition *ArgVariable = AddVariable(Parser, BundleZ("arg"), 0);
     node *Value = GetOrCreateNode(Parser, Node_Proj);
+#if 1
     Value->DataType = GetIntegerBottomType();
-    ArgVariable->Value = Value;
-    AddReference(Parser, Value);
+#else
+    Value->DataType = GetIntegerType(2);
+#endif
+    AddVariable(Parser, BundleZ("arg"), Value);
 
     while(Parsing(Tokenizer))
     {
@@ -795,31 +796,6 @@ internal node *ParseComparison(parser *Parser, tokenizer *Tokenizer)
         Result = Peephole(Parser, BinaryOp);
     }
 
-#if 0
-    token Token = PeekToken(Tokenizer);
-    if((Token.Type == Token_OpenAngleBracket) ||
-       (Token.Type == Token_CloseAngleBracket))
-    {
-        b32 Flip = (GetToken(Tokenizer).Type == Token_CloseAngleBracket);
-        b32 HasEquals = OptionalTokenRaw(Tokenizer, Token_Equals);
-        node_type OpType = HasEquals ? Node_LE : Node_LT;
-
-        node *LHS = Result;
-        if(LHS)
-        {
-            node *RHS = ParseComparison(Parser, Tokenizer);
-            if(Flip)
-            {
-                LHS = RHS;
-                RHS = Result;
-            }
-
-            node *BinaryOp = GetOrCreateNode(Parser, OpType, LHS, RHS);
-            Result = Peephole(Parser, BinaryOp);
-        }
-    }
-#endif
-
     return Result;
 }
 
@@ -861,21 +837,6 @@ internal void ParseBlock(parser *Parser, tokenizer *Tokenizer)
             token TypeToken = GetToken(Tokenizer);
             token NameToken = GetToken(Tokenizer);
 
-            variable_definition *Variable = AddVariable(Parser, NameToken.Text, 4);
-
-            for(u32 VariableIndex = SavedVariableCount;
-                VariableIndex < (Parser->VariableCount - 1);
-                ++VariableIndex)
-            {
-                variable_definition *TestVariable = Parser->Variables + VariableIndex;
-                if((Variable->NameHash == TestVariable->NameHash) &&
-                   StringsAreEqual(Variable->Name, TestVariable->Name))
-                {
-                    Error(Tokenizer, NameToken, "Redeclaration of variable");
-//                            Error(Tokenizer, NameToken, "Original variable was declared here");
-                }
-            }
-
             node *Value = 0;
             if(OptionalToken(Tokenizer, Token_Equals))
             {
@@ -889,10 +850,26 @@ internal void ParseBlock(parser *Parser, tokenizer *Tokenizer)
 
             if(Value)
             {
-                Variable->Value = Value;
-                AddReference(Parser, Variable->Value);
+                variable_definition *Variable = AddVariable(Parser, NameToken.Text, Value);
+
+                for(u32 VariableIndex = SavedVariableCount;
+                    VariableIndex < (Parser->VariableCount - 1);
+                    ++VariableIndex)
+                {
+                    variable_definition *TestVariable = Parser->Variables + VariableIndex;
+                    if((Variable->NameHash == TestVariable->NameHash) &&
+                       StringsAreEqual(Variable->Name, TestVariable->Name))
+                    {
+                        Error(Tokenizer, NameToken, "Redeclaration of variable");
+//                            Error(Tokenizer, NameToken, "Original variable was declared here");
+                    }
+                }
 
                 RequireToken(Tokenizer, Token_Semicolon);
+            }
+            else
+            {
+                OptionalToken(Tokenizer, Token_Semicolon);
             }
         }
         else

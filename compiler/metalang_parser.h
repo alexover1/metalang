@@ -57,8 +57,7 @@ struct variable_definition
 {
     string Name;
     u32 NameHash;
-    u32 Size;
-    u32 Offset;
+    u32 Flags;
     node *Value;
 };
 
