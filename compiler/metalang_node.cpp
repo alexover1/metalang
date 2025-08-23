@@ -159,19 +159,38 @@ internal data_type ComputeType(node *Node)
 {
     data_type Result = GetBottomType();
 
-    node *Op0 = Node->Operands[0];
-    node *Op1 = Node->Operands[1];
+    node *LHS = Node->Operands[0];
+    node *RHS = Node->Operands[1];
 
     switch(Node->Type)
     {
         case Node_Add:
         {
-            data_type A = Op0->DataType;
-            data_type B = Op1->DataType;
+            data_type A = LHS->DataType;
+            data_type B = RHS->DataType;
 
             if(IsConstantInteger(A) && IsConstantInteger(B))
             {
                 Result = GetIntegerType(A.Value + B.Value);
+            }
+            else
+            {
+                Result = Meet(A, B);
+            }
+        } break;
+
+        case Node_Sub:
+        {
+            data_type A = LHS->DataType;
+            data_type B = RHS->DataType;
+
+            if(LHS == RHS)
+            {
+                Result = GetIntegerType(0);
+            }
+            else if(IsConstantInteger(A) && IsConstantInteger(B))
+            {
+                Result = GetIntegerType(A.Value - B.Value);
             }
             else
             {

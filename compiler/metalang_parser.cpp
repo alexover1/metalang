@@ -442,6 +442,11 @@ internal node *Idealize(parser *Parser, node *Node)
             }
         } break;
 
+        case Node_Sub:
+        {
+
+        } break;
+
         case Node_Mul:
         {
             Assert(!(IsConstantType(LHS->DataType) && IsConstantType(RHS->DataType)));
@@ -697,6 +702,7 @@ internal node *ParseMultiplication(parser *Parser, tokenizer *Tokenizer)
     return LHS;
 }
 
+// TODO(alex): Right now this parses `1 + 2 + 3` as `1 + (2 + 3)` which might be wrong...
 internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
 {
     node *LHS = ParseMultiplication(Parser, Tokenizer);
@@ -833,6 +839,8 @@ internal void ParseBlock(parser *Parser, tokenizer *Tokenizer)
         printf("%.*s = ", ExpandString(Variable->Name));
         DebugNode(Variable->Value);
         printf("\n");
+
+        RemoveReference(Parser, Variable->Value);
     }
 
     Parser->VariableCount = SavedVariableCount;
