@@ -442,11 +442,6 @@ internal node *Idealize(parser *Parser, node *Node)
             }
         } break;
 
-        case Node_Sub:
-        {
-
-        } break;
-
         case Node_Mul:
         {
             Assert(!(IsConstantType(LHS->DataType) && IsConstantType(RHS->DataType)));
@@ -459,6 +454,16 @@ internal node *Idealize(parser *Parser, node *Node)
                     !IsConstantType(RHS->DataType))
             {
                 Result = SwapOperands(Node);
+            }
+        } break;
+
+        case Node_Div:
+        {
+            Assert(!(IsConstantType(LHS->DataType) && IsConstantType(RHS->DataType)));
+
+            if(IsConstantInteger(RHS->DataType) && (RHS->DataType.Value == 1))
+            {
+                Result = LHS;
             }
         } break;
     }
@@ -729,28 +734,32 @@ internal node *ParseAddition(parser *Parser, tokenizer *Tokenizer)
 
 internal node *ParseComparison(parser *Parser, tokenizer *Tokenizer)
 {
-    node *LHS = ParseAddition(Parser, Tokenizer);
+    node *Result = ParseAddition(Parser, Tokenizer);
 
-    node_type OpType = Node_Invalid;
-    if(OptionalToken(Tokenizer, Token_OpenAngleBracket))
+    token Token = PeekToken(Tokenizer);
+    if((Token.Type == Token_OpenAngleBracket) ||
+       (Token.Type == Token_CloseAngleBracket))
     {
+        b32 Flip = (GetToken(Tokenizer).Type == Token_CloseAngleBracket);
         b32 HasEquals = OptionalTokenRaw(Tokenizer, Token_Equals);
-        OpType = HasEquals ? Node_LE : Node_LT;
-    }
-    else if(OptionalToken(Tokenizer, Token_CloseAngleBracket))
-    {
-        b32 HasEquals = OptionalTokenRaw(Tokenizer, Token_Equals);
-        OpType = HasEquals ? Node_GE : Node_GT;
+        node_type OpType = HasEquals ? Node_LE : Node_LT;
+
+        node *LHS = Result;
+        if(LHS)
+        {
+            node *RHS = ParseComparison(Parser, Tokenizer);
+            if(Flip)
+            {
+                LHS = RHS;
+                RHS = Result;
+            }
+
+            node *BinaryOp = GetOrCreateNode(Parser, OpType, LHS, RHS);
+            Result = Peephole(Parser, BinaryOp);
+        }
     }
 
-    if(LHS && OpType)
-    {
-        node *RHS = ParseComparison(Parser, Tokenizer);
-        node *BinaryOp = GetOrCreateNode(Parser, OpType, LHS, RHS);
-        LHS = Peephole(Parser, BinaryOp);
-    }
-
-    return LHS;
+    return Result;
 }
 
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)

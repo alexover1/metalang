@@ -27,8 +27,6 @@ internal string GetNodeTypeName(node_type Type)
         case Node_NE: {return BundleZ("ne");}
         case Node_LE: {return BundleZ("le");}
         case Node_LT: {return BundleZ("lt");}
-        case Node_GE: {return BundleZ("ge");}
-        case Node_GT: {return BundleZ("gt");}
         case Node_Neg: {return BundleZ("neg");}
     }
 
@@ -157,33 +155,26 @@ internal data_type Meet(data_type A, data_type B)
 
 internal data_type ComputeType(node *Node)
 {
-    data_type Result = GetBottomType();
-
     node *LHS = Node->Operands[0];
     node *RHS = Node->Operands[1];
+
+    data_type A = LHS ? LHS->DataType : GetBottomType();
+    data_type B = RHS ? RHS->DataType : GetBottomType();
+
+    data_type Result = Meet(A, B);
 
     switch(Node->Type)
     {
         case Node_Add:
         {
-            data_type A = LHS->DataType;
-            data_type B = RHS->DataType;
-
             if(IsConstantInteger(A) && IsConstantInteger(B))
             {
                 Result = GetIntegerType(A.Value + B.Value);
-            }
-            else
-            {
-                Result = Meet(A, B);
             }
         } break;
 
         case Node_Sub:
         {
-            data_type A = LHS->DataType;
-            data_type B = RHS->DataType;
-
             if(LHS == RHS)
             {
                 Result = GetIntegerType(0);
@@ -192,9 +183,69 @@ internal data_type ComputeType(node *Node)
             {
                 Result = GetIntegerType(A.Value - B.Value);
             }
-            else
+        } break;
+
+        case Node_Mul:
+        {
+            if(IsConstantInteger(A) && IsConstantInteger(B))
             {
-                Result = Meet(A, B);
+                Result = GetIntegerType(A.Value * B.Value);
+            }
+        } break;
+
+        case Node_Div:
+        {
+            if(IsConstantInteger(A) && IsConstantInteger(B))
+            {
+                Result = GetIntegerType(A.Value / B.Value);
+            }
+        } break;
+
+        case Node_EQ:
+        {
+            if(LHS == RHS)
+            {
+                Result = GetIntegerType(1);
+            }
+            else if(IsConstantInteger(A) && IsConstantInteger(B))
+            {
+                Result = GetIntegerType(A.Value == B.Value);
+            }
+        } break;
+
+        case Node_NE:
+        {
+            if(LHS == RHS)
+            {
+                Result = GetIntegerType(0);
+            }
+            else if(IsConstantInteger(A) && IsConstantInteger(B))
+            {
+                Result = GetIntegerType(A.Value != B.Value);
+            }
+        } break;
+
+        case Node_LT:
+        {
+            if(LHS == RHS)
+            {
+                Result = GetIntegerType(0);
+            }
+            else if(IsConstantInteger(A) && IsConstantInteger(B))
+            {
+                Result = GetIntegerType(A.Value < B.Value);
+            }
+        } break;
+
+        case Node_LE:
+        {
+            if(LHS == RHS)
+            {
+                Result = GetIntegerType(1);
+            }
+            else if(IsConstantInteger(A) && IsConstantInteger(B))
+            {
+                Result = GetIntegerType(A.Value <= B.Value);
             }
         } break;
     }

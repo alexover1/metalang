@@ -62,8 +62,6 @@ enum node_type
     Node_NE,
     Node_LE,
     Node_LT,
-    Node_GE,
-    Node_GT,
 
     Node_Neg,
 
