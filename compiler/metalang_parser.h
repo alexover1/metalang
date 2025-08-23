@@ -72,6 +72,7 @@ struct parser
     node *ControlNode;
 
     node *FirstFreeNode;
+    u32 NextNodeID;
 
     variable_definition Variables[64];
     u32 VariableCount;
@@ -88,5 +89,7 @@ struct parser
 
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);
 internal void ParseStatement(parser *Parser, tokenizer *Tokenizer);
+
 internal void AddReference(parser *Parser, node *Node);
 internal void RemoveReference(parser *Parser, node *Node);
+internal node *Peephole(parser *Parser, node *Node);

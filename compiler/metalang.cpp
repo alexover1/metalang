@@ -101,9 +101,9 @@ int main(int ArgCount, char **Args)
                     tokenizer Tokenizer = Tokenize(BundleString(ReadResult.ContentsSize, (char *)ReadResult.Contents),
                                                    WrapZ(FileName));
                     parser *Parser = ParseTopLevelRoutines(Tokenizer);
-                    Parser->Stream = fopen("test.asm", "wb");
-                    ParseAndGenerateProgram(Parser, Tokenizer);
-                    fclose(Parser->Stream);
+                    // Parser->Stream = fopen("test.asm", "wb");
+                    ParseFile(Parser, Tokenizer);
+                    // fclose(Parser->Stream);
                 }
             }
         }

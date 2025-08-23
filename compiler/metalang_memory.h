@@ -109,7 +109,7 @@ inline arena_bootstrap_params NonRestoredArena(void)
 {
     arena_bootstrap_params Params = DefaultBootstrapParams();
     Params.AllocationFlags = PlatformMemory_NotRestored;
-    return(Params);
+    return Params;
 }
 
 #define PushStruct(Arena, type, ...) (type *)PushSize_(Arena, sizeof(type), ## __VA_ARGS__)
@@ -138,7 +138,7 @@ inline void *PushSize_(memory_arena *Arena, umm SizeInit, arena_push_params Para
     umm Size = 0;
     if(Arena->CurrentBlock)
     {
-        Size =  GetEffectiveSizeFor(Arena, SizeInit, Params);
+        Size = GetEffectiveSizeFor(Arena, SizeInit, Params);
     }
 
     if(!Arena->CurrentBlock ||
@@ -257,5 +257,5 @@ inline void *BootstrapPushSize_(umm StructSize, umm OffsetToArena,
     void *Struct = PushSize_(&Bootstrap, StructSize, Params);
     *(memory_arena *)((u8 *)Struct + OffsetToArena) = Bootstrap;
 
-    return(Struct);
+    return Struct;
 }

@@ -10,6 +10,32 @@
 
    ======================================================================== */
 
+enum data_type_class
+{
+    Class_All,
+    Class_Any,
+    Class_Control,
+    Class_Simple,
+    Class_Integer,
+    Class_Tuple,
+};
+
+enum data_type_flags
+{
+    DataType_Constant = 0x1,
+};
+
+struct data_type
+{
+    u16 Class;
+    u16 Flags;
+    s32 Value;
+};
+
+#define IsSimpleType(Type) ((Type).Class < Class_Simple)
+#define IsIntegerType(Type) ((Type).Class == Class_Integer)
+#define IsConstantType(Type) ((Type).Flags & DataType_Constant)
+
 enum node_type
 {
     Node_Invalid,
@@ -25,6 +51,7 @@ enum node_type
     // NOTE(alex): Data nodes
     //
     Node_Constant,
+    Node_Proj,
 
     Node_Add,
     Node_Sub,
@@ -54,16 +81,17 @@ struct node_control
 struct node
 {
     node_type Type;
+    data_type DataType;
     u32 RefCount;
-    s32 Value;
+    u32 ID;
     union
     {
         node *Array;
         node *Operand;
         node *Operands[2];
         node_control Control;
-        node *NextFree;
     };
+    node *NextFree;
 };
 
 #define IsConstant(Node) ((Node)->Type == Node_Constant)
