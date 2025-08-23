@@ -75,7 +75,6 @@ struct parser
 
     variable_definition Variables[64];
     u32 VariableCount;
-    u32 StackSize;
 
     routine_definition RoutineSentinel;
     routine_definition *RoutineHash[4096];

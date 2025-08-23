@@ -277,7 +277,6 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
     Parser->FirstFreeNode = 0;
     Parser->NextNodeID = 0;
     Parser->VariableCount = 0;
-    Parser->StackSize = 0;
     Parser->DataSize = 0;
 
     Parser->StartNode = Parser->ControlNode = GetOrCreateNode(Parser, Node_Start);
