@@ -467,6 +467,31 @@ internal node *Idealize(parser *Parser, node *Node)
                 Result = LHS;
             }
         } break;
+
+        case Node_Neg: {} break;
+
+        case Node_Not:
+        {
+            Assert(!IsConstantType(LHS->DataType));
+
+            switch(LHS->Type)
+            {
+                case Node_EQ:
+                {
+                    Result = GetOrCreateNode(Parser, Node_NE, LHS->Operands[0], LHS->Operands[1]);
+                } break;
+
+                case Node_LT:
+                {
+                    Result = GetOrCreateNode(Parser, Node_LE, LHS->Operands[1], LHS->Operands[0]);
+                } break;
+
+                case Node_LE:
+                {
+                    Result = GetOrCreateNode(Parser, Node_LT, LHS->Operands[1], LHS->Operands[0]);
+                } break;
+            }
+        } break;
     }
 
     return Result;
