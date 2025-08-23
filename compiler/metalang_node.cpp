@@ -28,6 +28,7 @@ internal string GetNodeTypeName(node_type Type)
         case Node_LE: {return BundleZ("le");}
         case Node_LT: {return BundleZ("lt");}
         case Node_Neg: {return BundleZ("neg");}
+        case Node_Not: {return BundleZ("not");}
     }
 
     return BundleZ("unknown");
@@ -246,6 +247,22 @@ internal data_type ComputeType(node *Node)
             else if(IsConstantInteger(A) && IsConstantInteger(B))
             {
                 Result = GetIntegerType(A.Value <= B.Value);
+            }
+        } break;
+
+        case Node_Neg:
+        {
+            if(IsConstantInteger(A))
+            {
+                Result = GetIntegerType(-A.Value);
+            }
+        } break;
+
+        case Node_Not:
+        {
+            if(IsConstantInteger(A))
+            {
+                Result = GetIntegerType(!A.Value);
             }
         } break;
     }

@@ -64,6 +64,7 @@ enum node_type
     Node_LT,
 
     Node_Neg,
+    Node_Not,
 
     Node_Count,
 };
@@ -89,7 +90,7 @@ struct node
         node *Operands[2];
         node_control Control;
     };
-    node *NextFree;
+    node *NextFree; // TODO(alex): Collapse this back into the union?
 };
 
 #define IsConstant(Node) ((Node)->Type == Node_Constant)

@@ -10,6 +10,24 @@
 
    ======================================================================== */
 
+#if 1
+
+#define DEBUG_RECORD_ALLOCATION(Node)
+#define DEBUG_RECORD_FREE(Node)
+#define DEBUG_RECORD_REFERENCE(Node)
+#define DEBUG_RECORD_UNREFERENCE(Node)
+
+#else
+
+#define DEBUG_LOG(Type, Node) do {printf("%s: node=%p, id=%d\n", (Type), (Node), (Node)->ID); } while(0)
+
+#define DEBUG_RECORD_ALLOCATION(Node) DEBUG_LOG("ALLOCATE", (Node))
+#define DEBUG_RECORD_FREE(Node) DEBUG_LOG("FREE", (Node))
+#define DEBUG_RECORD_REFERENCE(Node) DEBUG_LOG("REFERENCE", (Node))
+#define DEBUG_RECORD_UNREFERENCE(Node) DEBUG_LOG("UNREFERENCE", (Node))
+
+#endif
+
 internal void DebugToken(token Token)
 {
     local_persist char Buffer[Kilobytes(4)];
@@ -118,24 +136,19 @@ internal variable_definition *GetVariable(parser *Parser, string Name)
 
 internal node *GetOrCreateNodeInternal(parser *Parser, node_type Type, u32 OperandCount, node **Operands)
 {
-    b32 Allocated = false;
-
     if(!Parser->FirstFreeNode)
     {
         Parser->FirstFreeNode = PushStruct(&Parser->Arena, node, NoClear());
-        Parser->FirstFreeNode->ID = Parser->NextNodeID++;
         Parser->FirstFreeNode->NextFree = 0;
-        Allocated = true;
     }
 
     // TODO(alex): Hash table for looking up already created nodes!
     node *Result = Parser->FirstFreeNode;
     Parser->FirstFreeNode = Result->NextFree;
 
-    u32 ID = Result->ID;
     ZeroStruct(*Result);
     Result->Type = Type;
-    Result->ID = ID;
+    Result->ID = Parser->NextNodeID++;
 
     Assert(ArrayCount(Result->Operands) >= OperandCount);
 
@@ -151,9 +164,7 @@ internal node *GetOrCreateNodeInternal(parser *Parser, node_type Type, u32 Opera
         }
     }
 
-    printf("%s node %p (id = %d, type = ", Allocated ? "Allocated" : "Reusing", Result, Result->ID);
-    DebugNode(Result);
-    printf(")\n");
+    DEBUG_RECORD_ALLOCATION(Result);
 
     return Result;
 }
@@ -182,18 +193,14 @@ internal node *GetOrCreateNode(parser *Parser, node_type Type)
 
 internal void AddReference(parser *Parser, node *Node)
 {
-    printf("Referenced node %p (id = %d, type = ", Node, Node->ID);
-    DebugNode(Node);
-    printf(")\n");
+    DEBUG_RECORD_REFERENCE(Node);
 
     ++Node->RefCount;
 }
 
 internal void FreeNode(parser *Parser, node *Node)
 {
-    printf("Freed node %p (id = %d, type = ", Node, Node->ID);
-    DebugNode(Node);
-    printf(")\n");
+    DEBUG_RECORD_FREE(Node);
 
     Assert(Node->RefCount == 0);
     Node->NextFree = Parser->FirstFreeNode;
@@ -214,9 +221,7 @@ internal void RemoveChildReferences(parser *Parser, node *Parent)
 
 internal void RemoveReference(parser *Parser, node *Node)
 {
-    printf("Unreferenced node %p (id = %d, type = ", Node, Node->ID);
-    DebugNode(Node);
-    printf(")\n");
+    DEBUG_RECORD_UNREFERENCE(Node);
 
     Assert(Node->RefCount > 0);
     --Node->RefCount;
@@ -363,10 +368,6 @@ internal node *DeadCodeEliminate(parser *Parser, node *Old, node *New)
     if((Old != New) &&
        (Old->RefCount == 0))
     {
-        printf("Eliminated node %p (id = %d, type = ", Old, Old->ID);
-        DebugNode(Old);
-        printf("\n");
-
         RemoveChildReferences(Parser, Old);
         FreeNode(Parser, Old);
     }
@@ -494,136 +495,6 @@ internal node *Peephole(parser *Parser, node *Node)
         }
     }
 
-#if 0
-
-    // TODO(alex): Decide what we want our strategy to be for freeing unused nodes.
-    // Right now, we are just leaking nodes anytime we perform a replacement of
-    // constant expressions. Ideally, we could put these on a free list so that
-    // whenever you call GetOrCreateNode, it just returns a previously allocated node.
-    // Another solution is to just reset the arena every time we finish parsing a
-    // procedure, since none of the procedure's nodes should really last any longer
-    // than after the procedure has been fully parsed and optimized. (This has an
-    // inherit assumption that the scheduling algorithm converts nodes into another
-    // format so that we don't have to keep storing the nodes).
-
-    Node->DataType = ComputeType(Node);
-
-    if(IsData(Result))
-    {
-        u32 Arity = GetArity(Result);
-        if((Arity == 2) &&
-           IsConstant(Result->Operands[0]) && !IsConstant(Result->Operands[1]))
-        {
-            node *Temp = Result->Operands[0];
-            Result->Operands[0] = Result->Operands[1];
-            Result->Operands[1] = Temp;
-        }
-    }
-
-    switch(Node->Type)
-    {
-        case Node_Add:
-        {
-            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
-            {
-                s32 Value = Node->Operands[0]->Value + Node->Operands[1]->Value;
-                RemoveReferences(Parser, Node);
-                ZeroStruct(*Result);
-                Result->Type = Node_Constant;
-                Result->Value = Value;
-            }
-            else if(IsConstant(Node->Operands[1]) &&
-                    (Node->Operands[1]->Value == 0))
-            {
-                node *Replacement = Node->Operands[0];
-                AddReference(Parser, Replacement);
-                RemoveReferences(Parser, Node);
-                Result = Replacement;
-            }
-        } break;
-
-        case Node_Sub:
-        {
-            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
-            {
-                s32 Value = Node->Operands[0]->Value - Node->Operands[1]->Value;
-                RemoveReferences(Parser, Node);
-                ZeroStruct(*Result);
-                Result->Type = Node_Constant;
-                Result->Value = Value;
-            }
-            else if(IsConstant(Node->Operands[1]) &&
-                    (Node->Operands[1]->Value == 0))
-            {
-                node *Replacement = Node->Operands[0];
-                AddReference(Parser, Replacement);
-                RemoveReferences(Parser, Node);
-                Result = Replacement;
-            }
-            else if(Node->Operands[0] == Node->Operands[1])
-            {
-                RemoveReferences(Parser, Node);
-                ZeroStruct(*Result);
-                Result->Type = Node_Constant;
-                Result->Value = 0;
-            }
-        } break;
-
-        case Node_Mul:
-        {
-            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
-            {
-                s32 Value = Node->Operands[0]->Value * Node->Operands[1]->Value;
-                RemoveReferences(Parser, Node);
-                ZeroStruct(*Result);
-                Result->Type = Node_Constant;
-                Result->Value = Value;
-            }
-            else if(IsConstant(Node->Operands[1]))
-            {
-                if(Node->Operands[1]->Value == 0)
-                {
-                    RemoveReferences(Parser, Node);
-                    ZeroStruct(*Result);
-                    Result->Type = Node_Constant;
-                    Result->Value = 0;
-                }
-                else if(Node->Operands[1]->Value == 1)
-                {
-                    node *Replacement = Node->Operands[0];
-                    AddReference(Parser, Replacement);
-                    RemoveReferences(Parser, Node);
-                    Result = Replacement;
-                }
-            }
-        } break;
-
-        case Node_EQ:
-        {
-            if(IsConstant(Node->Operands[0]) && IsConstant(Node->Operands[1]))
-            {
-                s32 Value = Node->Operands[0]->Value == Node->Operands[1]->Value;
-                RemoveReferences(Parser, Node);
-                ZeroStruct(*Result);
-                Result->Type = Node_Constant;
-                Result->Value = Value;
-            }
-        } break;
-
-        case Node_Neg:
-        {
-            if(IsConstant(Node->Operand))
-            {
-                s32 Value = -Node->Operand->Value;
-                RemoveReferences(Parser, Node);
-                ZeroStruct(*Result);
-                Result->Type = Node_Constant;
-                Result->Value = Value;
-            }
-        } break;
-    }
-#endif
-
     return Result;
 }
 
@@ -675,19 +546,26 @@ internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
 
 internal node *ParseUnaryOp(parser *Parser, tokenizer *Tokenizer)
 {
+    node *Result = 0;
+
     node_type OpType = Node_Invalid;
     if(OptionalToken(Tokenizer, Token_Minus))
     {
         OpType = Node_Neg;
     }
-
-    node *Result = ParsePrimaryExpression(Parser, Tokenizer);
-
-    if(Result && OpType)
+    else if(OptionalToken(Tokenizer, Token_Not))
     {
-        node *UnaryOp = GetOrCreateNode(Parser, OpType);
-        UnaryOp->Operand = ParsePrimaryExpression(Parser, Tokenizer);
-        AddReference(Parser, UnaryOp->Operand);
+        OpType = Node_Not;
+    }
+    else
+    {
+        Result = ParsePrimaryExpression(Parser, Tokenizer);
+    }
+
+    if(OpType)
+    {
+        node *RHS = ParseUnaryOp(Parser, Tokenizer);
+        node *UnaryOp = GetOrCreateNode(Parser, OpType, RHS);
         Result = Peephole(Parser, UnaryOp);
     }
 
