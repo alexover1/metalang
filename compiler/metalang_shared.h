@@ -144,6 +144,13 @@ internal u32 StringLength(char *String)
     return Count;
 }
 
+internal b32 IsValid(buffer Buffer)
+{
+    b32 Result = (Buffer.Count > 0);
+
+    return Result;
+}
+
 internal string WrapZ(char *Z)
 {
     string Result = {StringLength(Z), (u8 *)Z};

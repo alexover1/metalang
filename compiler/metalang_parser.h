@@ -59,6 +59,7 @@ struct variable_definition
     u32 NameHash;
     u32 Flags;
     node *Value;
+    variable_definition *Prev;
 };
 
 struct parser
@@ -73,6 +74,9 @@ struct parser
     node *FirstFreeNode;
     u32 NextNodeID;
 
+    variable_definition *MostRecentVariable;
+    variable_definition *FirstFreeVariable;
+
     variable_definition Variables[64];
     u32 VariableCount;
 
@@ -80,9 +84,6 @@ struct parser
     routine_definition *RoutineHash[4096];
 
     type_definition *TypeHash[4096];
-
-    u8 DataSegment[Kilobytes(4)];
-    u32 DataSize;
 };
 
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);

@@ -46,12 +46,15 @@ enum node_type
     Node_Start,
     Node_End,
     Node_Print,
+    Node_If,
+    Node_Region,
 
     //
     // NOTE(alex): Data nodes
     //
     Node_Constant,
     Node_Proj,
+    Node_Phi,
 
     Node_Add,
     Node_Sub,
@@ -77,30 +80,46 @@ struct node_control
     node *Data;
 };
 
+struct node_region
+{
+    node *Prev;
+    node *TrueBranch;
+    node *FalseBranch;
+};
+
+// TODO(alex): Maybe make there be a union that is like
+// Region for Phi nodes, Prev for control nodes, and NextFree.
+// Then Operands is an array of actual data values only.
 struct node
 {
     node_type Type;
-    data_type DataType;
-    u32 RefCount;
     u32 ID;
+    u32 RefCount;
+    u32 Index; // NOTE(alex): Only for Node_Proj!
+
+    data_type DataType;
+
+    string DebugLabel;
+
     union
     {
         node *Array;
         node *Operand;
         node *Operands[2];
         node_control Control;
+        node_region Region;
+        node *NextFree;
     };
-    node *NextFree; // TODO(alex): Collapse this back into the union?
 };
 
 #define IsConstant(Node) ((Node)->Type == Node_Constant)
 #define IsControl(Node) ((Node)->Type < Node_Constant)
 #define IsData(Node) ((Node)->Type >= Node_Constant)
 
-#define MAX_NODE_EDGE_COUNT ((sizeof(node) - OffsetOf(node, Array)) / sizeof(node *))
-inline node *GetEdge(node *Node, u32 EdgeIndex)
+#define MAX_NODE_OPERAND_COUNT ((sizeof(node) - OffsetOf(node, Array)) / sizeof(node *))
+internal node *GetOperand(node *Node, u32 Index)
 {
-    Assert(EdgeIndex < MAX_NODE_EDGE_COUNT);
-    node *Result = (&Node->Array)[EdgeIndex];
+    Assert(Index < MAX_NODE_OPERAND_COUNT);
+    node *Result = (&Node->Array)[Index];
     return Result;
 }

@@ -411,6 +411,19 @@ internal b32 OptionalTokenRaw(tokenizer *Tokenizer, token_type DesiredType)
     return Result;
 }
 
+internal b32 OptionalToken(tokenizer *Tokenizer, char *Match)
+{
+    token Token = PeekToken(Tokenizer);
+    b32 Result = ((Token.Type == Token_Identifier) &&
+                  TokenEquals(Token, Match));
+    if(Result)
+    {
+        GetToken(Tokenizer);
+    }
+
+    return Result;
+}
+
 internal b32 PeekToken(tokenizer *Tokenizer, token_type DesiredType)
 {
     token Token = PeekToken(Tokenizer);

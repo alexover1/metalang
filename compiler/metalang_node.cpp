@@ -17,8 +17,11 @@ internal string GetNodeTypeName(node_type Type)
         case Node_Start: {return BundleZ("start"); }
         case Node_End: {return BundleZ("end"); }
         case Node_Print: {return BundleZ("print"); }
+        case Node_If: {return BundleZ("if"); }
+        case Node_Region: {return BundleZ("region"); }
         case Node_Constant: {return BundleZ("constant");}
         case Node_Proj: {return BundleZ("proj");}
+        case Node_Phi: {return BundleZ("phi");}
         case Node_Add: {return BundleZ("add");}
         case Node_Sub: {return BundleZ("sub");}
         case Node_Mul: {return BundleZ("mul");}
