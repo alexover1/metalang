@@ -991,6 +991,11 @@ internal variable_scope ParseBlock(parser *Parser, tokenizer *Tokenizer)
 
     DebugScope(Parser, Scope);
 
+    // TODO(alex): Since we now return the scope here, make ParseStatement
+    // iterate the scope and delete all of the variables it contains, since
+    // ParseIF directly calls into ParseBlock and can merge the scopes instead
+    // of just deleting them.
+
     return Scope;
 }
 
