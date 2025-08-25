@@ -56,6 +56,9 @@ enum node_type
     Node_Proj,
     Node_Phi,
 
+    //
+    // NOTE(alex): Operator nodes
+    //
     Node_Add,
     Node_Sub,
     Node_Mul,
@@ -115,6 +118,7 @@ struct node
 #define IsConstant(Node) ((Node)->Type == Node_Constant)
 #define IsControl(Node) ((Node)->Type < Node_Constant)
 #define IsData(Node) ((Node)->Type >= Node_Constant)
+#define IsOperator(Node) ((Node)->Type >= Node_Add)
 
 #define MAX_NODE_OPERAND_COUNT ((sizeof(node) - OffsetOf(node, Array)) / sizeof(node *))
 internal node *GetOperand(node *Node, u32 Index)

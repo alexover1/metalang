@@ -204,17 +204,16 @@ internal variable_binding *GetVariable(parser *Parser, string Name, u32 NameHash
     return Result;
 }
 
-internal variable_binding *GetVariable(parser *Parser, string Name)
+inline variable_binding *GetVariable(parser *Parser, string Name)
 {
     variable_binding *Result = GetVariable(Parser, Name, StringHashOf(Name));
     return Result;
 }
 
-internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Scope, string Name)
+internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Scope, string Name, u32 NameHash)
 {
     variable_binding *Result = 0;
 
-    u32 NameHash = StringHashOf(Name);
     for(variable_iterator Iter = IterateVariablesIn(Parser, Scope);
         IsValid(Iter);
         Iter = Next(Iter))
@@ -231,23 +230,9 @@ internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Sco
     return Result;
 }
 
-internal variable_binding *GetVariableInScope(parser *Parser, variable_iterator Iter, string Name, u32 NameHash)
+inline variable_binding *GetVariableInScope(parser *Parser, variable_scope Scope, string Name)
 {
-    variable_binding *Result = 0;
-
-    for(;
-        IsValid(Iter);
-        Iter = Next(Iter))
-    {
-        variable_binding *Variable = Iter.At;
-        if((Variable->NameHash == NameHash) &&
-           StringsAreEqual(Variable->Name, Name))
-        {
-            Result = Variable;
-            break;
-        }
-    }
-
+    variable_binding *Result = GetVariableInScope(Parser, Scope, Name, StringHashOf(Name));
     return Result;
 }
 
@@ -267,6 +252,23 @@ internal void DebugScope(parser *Parser, variable_scope Scope)
         variable_binding *Variable = Iter.At;
         DebugVariable(Variable);
     }
+}
+
+internal variable_binding *GetVariableToMerge(variable_iterator Iter, variable_binding *Original)
+{
+    variable_binding *Result = 0;
+
+    for(; IsValid(Iter); Iter = Next(Iter))
+    {
+        variable_binding *Variable = Iter.At;
+        if(Variable->Original == Original)
+        {
+            Result = Variable;
+            break;
+        }
+    }
+
+    return Result;
 }
 
 internal node *GetOrCreateNodeInternal(parser *Parser, node_type Type, u32 OperandCount, node **Operands)
@@ -406,65 +408,6 @@ internal void RemoveReference(parser *Parser, node *Node)
     {
         RemoveChildReferences(Parser, Node);
         FreeNode(Parser, Node);
-    }
-}
-
-internal variable_binding *GetVariableToMerge(variable_iterator Iter, variable_binding *Original)
-{
-    variable_binding *Result = 0;
-
-    for(; IsValid(Iter); Iter = Next(Iter))
-    {
-        variable_binding *Variable = Iter.At;
-        if(Variable->Original == Original)
-        {
-            Result = Variable;
-            break;
-        }
-    }
-
-    return Result;
-}
-
-internal void MergeScopes(parser *Parser, node *Region,
-                          variable_iterator TrueScope,
-                          variable_iterator FalseScope)
-{
-    // TODO(alex): This code is kinda turtles! Possible low-hanging fruit to gain some speed:
-    // - Stop iterating the entire variable tree. There probably aren't that many variables,
-    //   so this may end up just not mattering. But if we see this function start to show up
-    //   on the profile, it may be worth considering. There's a few possible options to solve
-    //   this. One way is to keep a list of any variables that actually got overwritten during
-    //   an if/else block.
-    // - Implement a hash table for fast lookup in scopes. If we do have a lot of variables in
-    //   a particular scope, it might be pretty easy to just throw a hash table in there and
-    //   then all of our lookups become basically free.
-
-    for(variable_iterator Iter = IterateVariables(Parser);
-        IsValid(Iter);
-        Iter = Next(Iter))
-    {
-        variable_binding *Variable = Iter.At;
-
-        variable_binding *TrueVar = GetVariableToMerge(TrueScope, Variable);
-        variable_binding *FalseVar = GetVariableToMerge(FalseScope, Variable);
-
-        node *LHS = TrueVar ? TrueVar->Value : Variable->Value;
-        node *RHS = FalseVar ? FalseVar->Value : Variable->Value;
-
-        if(LHS != RHS)
-        {
-            // TODO(alex): There are a few places where we overwrite a variable's value,
-            // and it gets kind of tricky to keep the reference counting straight, so
-            // we should make a utility for this.
-            if(TrueVar && FalseVar)
-            {
-                RemoveReference(Parser, Variable->Value);
-            }
-
-            Variable->Value = GetOrCreatePhi(Parser, Region, LHS, RHS);
-            AddReference(Parser, Variable->Value);
-        }
     }
 }
 
@@ -735,7 +678,8 @@ internal node *Idealize(parser *Parser, node *Node)
             {
                 Result = LHS;
             }
-            else if(LHS->Type == RHS->Type)
+            else if(IsOperator(LHS) &&
+                    (LHS->Type == RHS->Type))
             {
                 node *PhiLHS = Peephole(Parser, GetOrCreateNode(Parser, Node_Phi, LHS->Operands[0], RHS->Operands[0]));
                 node *PhiRHS = Peephole(Parser, GetOrCreateNode(Parser, Node_Phi, LHS->Operands[1], RHS->Operands[1]));
@@ -770,6 +714,48 @@ internal node *Peephole(parser *Parser, node *Node)
     }
 
     return Result;
+}
+
+internal void MergeScopes(parser *Parser, node *Region,
+                          variable_iterator TrueScope,
+                          variable_iterator FalseScope)
+{
+    // TODO(alex): This code is kinda turtles! Possible low-hanging fruit to gain some speed:
+    // - Stop iterating the entire variable tree. There probably aren't that many variables,
+    //   so this may end up just not mattering. But if we see this function start to show up
+    //   on the profile, it may be worth considering. There's a few possible options to solve
+    //   this. One way is to keep a list of any variables that actually got overwritten during
+    //   an if/else block.
+    // - Implement a hash table for fast lookup in scopes. If we do have a lot of variables in
+    //   a particular scope, it might be pretty easy to just throw a hash table in there and
+    //   then all of our lookups become basically free.
+
+    for(variable_iterator Iter = IterateVariables(Parser);
+        IsValid(Iter);
+        Iter = Next(Iter))
+    {
+        variable_binding *Variable = Iter.At;
+
+        variable_binding *TrueVar = GetVariableToMerge(TrueScope, Variable);
+        variable_binding *FalseVar = GetVariableToMerge(FalseScope, Variable);
+
+        node *LHS = TrueVar ? TrueVar->Value : Variable->Value;
+        node *RHS = FalseVar ? FalseVar->Value : Variable->Value;
+
+        if(LHS != RHS)
+        {
+            // TODO(alex): There are a few places where we overwrite a variable's value,
+            // and it gets kind of tricky to keep the reference counting straight, so
+            // we should make a utility for this.
+            if(TrueVar && FalseVar)
+            {
+                RemoveReference(Parser, Variable->Value);
+            }
+
+            Variable->Value = Peephole(Parser, GetOrCreatePhi(Parser, Region, LHS, RHS));
+            AddReference(Parser, Variable->Value);
+        }
+    }
 }
 
 internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)

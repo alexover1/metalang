@@ -38,9 +38,9 @@ EmptyELSE()
     X;
 }
 
-MergedPHIIgnoreOriginal()
+MergedIgnoreOriginal()
 {
-    s32 X = 12; // This value won't ever be used
+    s32 X = 12; // This value won't ever be used.
     if(arg)
     {
         X = 34;
