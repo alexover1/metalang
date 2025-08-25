@@ -104,6 +104,56 @@ internal void DebugNode(node *Node)
     }
 }
 
+struct variable_iterator
+{
+    variable_binding *At;
+    variable_binding *End;
+};
+
+inline variable_iterator IterateVariables(parser *Parser)
+{
+    variable_iterator Iter = {};
+    Iter.At = Parser->MostRecentVariable;
+    Iter.End = 0;
+    return Iter;
+}
+
+inline variable_iterator IterateVariablesIn(parser *Parser, variable_scope Scope)
+{
+    variable_iterator Iter = {};
+    Iter.At = Parser->MostRecentVariable;
+    Iter.End = Scope.End;
+    return Iter;
+}
+
+inline b32 IsValid(variable_iterator Iter)
+{
+    b32 Result = (Iter.At != Iter.End);
+    return Result;
+}
+
+inline variable_iterator Next(variable_iterator Iter)
+{
+    if(Iter.At)
+    {
+        Iter.At = Iter.At->Prev;
+    }
+
+    return Iter;
+}
+
+inline variable_scope BeginScope(parser *Parser)
+{
+    variable_scope Result = {};
+    Result.End = Parser->MostRecentVariable;
+    return Result;
+}
+
+inline void EndScope(parser *Parser, variable_scope Scope)
+{
+    Parser->MostRecentVariable = Scope.End;
+}
+
 internal variable_binding *AllocateVariable(parser *Parser)
 {
     if(!Parser->FirstFreeVariable)
@@ -117,19 +167,6 @@ internal variable_binding *AllocateVariable(parser *Parser)
 
     ZeroStruct(*Result);
 
-    return Result;
-}
-
-internal variable_id AllocateVariableID(parser *Parser)
-{
-    variable_id Result;
-    Result.Value = Parser->NextVariableID++;
-    return Result;
-}
-
-internal b32 IDsAreEqual(variable_id A, variable_id B)
-{
-    b32 Result = (A.Value == B.Value);
     return Result;
 }
 
@@ -147,58 +184,15 @@ internal variable_binding *AddVariable(parser *Parser, string Name, node *Value)
     return Variable;
 }
 
-internal variable_binding *GetVariable(variable_binding *Start, variable_id ID)
+internal variable_binding *GetVariable(parser *Parser, string Name, u32 NameHash)
 {
     variable_binding *Result = 0;
 
-    for(variable_binding *TestVariable = Start;
-        TestVariable;
-        TestVariable = TestVariable->Prev)
+    for(variable_iterator Iter = IterateVariables(Parser);
+        IsValid(Iter);
+        Iter = Next(Iter))
     {
-        if(IDsAreEqual(TestVariable->ID, ID))
-        {
-            Result = TestVariable;
-            break;
-        }
-    }
-
-    return Result;
-}
-
-internal variable_binding *GetVariable(variable_binding *Start, string Name, u32 NameHash)
-{
-    variable_binding *Result = 0;
-
-    for(variable_binding *TestVariable = Start;
-        TestVariable;
-        TestVariable = TestVariable->Prev)
-    {
-        if((TestVariable->NameHash == NameHash) &&
-           StringsAreEqual(TestVariable->Name, Name))
-        {
-            Result = TestVariable;
-            break;
-        }
-    }
-
-    return Result;
-}
-
-internal variable_binding *GetVariable(parser *Parser, string Name)
-{
-    variable_binding *Result = GetVariable(Parser->MostRecentVariable, Name, StringHashOf(Name));
-    return Result;
-}
-
-internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Scope, string Name)
-{
-    variable_binding *Result = 0;
-
-    u32 NameHash = StringHashOf(Name);
-    for(variable_binding *Variable = Scope.Head;
-        Variable != Scope.Tail;
-        Variable = Variable->Prev)
-    {
+        variable_binding *Variable = Iter.At;
         if((Variable->NameHash == NameHash) &&
            StringsAreEqual(Variable->Name, Name))
         {
@@ -210,34 +204,68 @@ internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Sco
     return Result;
 }
 
-internal variable_scope BeginScope(parser *Parser)
+internal variable_binding *GetVariable(parser *Parser, string Name)
 {
-    variable_scope Result = {};
+    variable_binding *Result = GetVariable(Parser, Name, StringHashOf(Name));
+    return Result;
+}
 
-    Result.Head = Result.Tail = Parser->MostRecentVariable;
+internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Scope, string Name)
+{
+    variable_binding *Result = 0;
+
+    u32 NameHash = StringHashOf(Name);
+    for(variable_iterator Iter = IterateVariablesIn(Parser, Scope);
+        IsValid(Iter);
+        Iter = Next(Iter))
+    {
+        variable_binding *Variable = Iter.At;
+        if((Variable->NameHash == NameHash) &&
+           StringsAreEqual(Variable->Name, Name))
+        {
+            Result = Variable;
+            break;
+        }
+    }
 
     return Result;
 }
 
-internal void UpdateScope(parser *Parser, variable_scope *Scope)
+internal variable_binding *GetVariableInScope(parser *Parser, variable_iterator Iter, string Name, u32 NameHash)
 {
-    Scope->Head = Parser->MostRecentVariable;
+    variable_binding *Result = 0;
+
+    for(;
+        IsValid(Iter);
+        Iter = Next(Iter))
+    {
+        variable_binding *Variable = Iter.At;
+        if((Variable->NameHash == NameHash) &&
+           StringsAreEqual(Variable->Name, Name))
+        {
+            Result = Variable;
+            break;
+        }
+    }
+
+    return Result;
 }
 
-internal void EndScope(parser *Parser, variable_scope Scope)
+internal void DebugVariable(variable_binding *Variable)
 {
-    Parser->MostRecentVariable = Scope.Tail;
+    printf("%.*s = ", ExpandString(Variable->Name));
+    DebugNode(Variable->Value);
+    printf("\n");
 }
 
 internal void DebugScope(parser *Parser, variable_scope Scope)
 {
-    for(variable_binding *Variable = Scope.Head;
-        Variable != Scope.Tail;
-        Variable = Variable->Prev)
+    for(variable_iterator Iter = IterateVariablesIn(Parser, Scope);
+        IsValid(Iter);
+        Iter = Next(Iter))
     {
-        printf("%.*s = ", ExpandString(Variable->Name));
-        DebugNode(Variable->Value);
-        printf("\n");
+        variable_binding *Variable = Iter.At;
+        DebugVariable(Variable);
     }
 }
 
@@ -381,50 +409,63 @@ internal void RemoveReference(parser *Parser, node *Node)
     }
 }
 
-internal variable_binding *MergeScopes(parser *Parser, node *Region, variable_binding *Base,
-                                       variable_binding *True, variable_binding *False)
+internal variable_binding *GetVariableToMerge(variable_iterator Iter, variable_binding *Original)
 {
-    variable_binding *Result = Base;
+    variable_binding *Result = 0;
 
-    for(variable_binding *Variable = Base;
-        Variable;
-        Variable = Variable->Prev)
+    for(; IsValid(Iter); Iter = Next(Iter))
     {
-        variable_binding *TrueVar = GetVariable(True, Variable->ID);
-        variable_binding *FalseVar = GetVariable(False, Variable->ID);
-
-        node *MergedValue = 0;
-
-        if(TrueVar || FalseVar)
+        variable_binding *Variable = Iter.At;
+        if(Variable->Original == Original)
         {
-            node *TVal = TrueVar ? TrueVar->Value : Variable->Value;
-            node *FVal = FalseVar ? FalseVar->Value : Variable->Value;
-
-            if(TVal != FVal)
-            {
-                MergedValue = GetOrCreatePhi(Parser, Region, TVal, FVal);
-            }
-            else
-            {
-                MergedValue = TVal;
-            }
-        }
-
-        if(MergedValue)
-        {
-            variable_binding *Merged = AllocateVariable(Parser);
-            Merged->Name = Variable->Name;
-            Merged->NameHash = Variable->NameHash;
-            Merged->ID = Variable->ID;
-            Merged->Value = MergedValue;
-            AddReference(Parser, MergedValue);
-
-            Merged->Prev = Result;
-            Result = Merged;
+            Result = Variable;
+            break;
         }
     }
 
     return Result;
+}
+
+internal void MergeScopes(parser *Parser, node *Region,
+                          variable_iterator TrueScope,
+                          variable_iterator FalseScope)
+{
+    // TODO(alex): This code is kinda turtles! Possible low-hanging fruit to gain some speed:
+    // - Stop iterating the entire variable tree. There probably aren't that many variables,
+    //   so this may end up just not mattering. But if we see this function start to show up
+    //   on the profile, it may be worth considering. There's a few possible options to solve
+    //   this. One way is to keep a list of any variables that actually got overwritten during
+    //   an if/else block.
+    // - Implement a hash table for fast lookup in scopes. If we do have a lot of variables in
+    //   a particular scope, it might be pretty easy to just throw a hash table in there and
+    //   then all of our lookups become basically free.
+
+    for(variable_iterator Iter = IterateVariables(Parser);
+        IsValid(Iter);
+        Iter = Next(Iter))
+    {
+        variable_binding *Variable = Iter.At;
+
+        variable_binding *TrueVar = GetVariableToMerge(TrueScope, Variable);
+        variable_binding *FalseVar = GetVariableToMerge(FalseScope, Variable);
+
+        node *LHS = TrueVar ? TrueVar->Value : Variable->Value;
+        node *RHS = FalseVar ? FalseVar->Value : Variable->Value;
+
+        if(LHS != RHS)
+        {
+            // TODO(alex): There are a few places where we overwrite a variable's value,
+            // and it gets kind of tricky to keep the reference counting straight, so
+            // we should make a utility for this.
+            if(TrueVar && FalseVar)
+            {
+                RemoveReference(Parser, Variable->Value);
+            }
+
+            Variable->Value = GetOrCreatePhi(Parser, Region, LHS, RHS);
+            AddReference(Parser, Variable->Value);
+        }
+    }
 }
 
 internal type_id TypeIDFromToken(token Token)
@@ -478,7 +519,6 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 
     Parser->MostRecentVariable = 0;
     Parser->FirstFreeVariable = 0;
-    Parser->NextVariableID = 0;
 
     Parser->StartNode = Parser->ControlNode = GetOrCreateNode(Parser, Node_Start);
     Parser->EndNode = GetOrCreateNode(Parser, Node_End);
@@ -490,8 +530,7 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 #else
     Value->DataType = GetIntegerType(2);
 #endif
-    variable_binding *Variable = AddVariable(Parser, ARG0, Value);
-    Variable->ID = AllocateVariableID(Parser);
+    AddVariable(Parser, ARG0, Value);
 
     while(Parsing(Tokenizer))
     {
@@ -916,7 +955,7 @@ internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)
     return Result;
 }
 
-internal variable_scope ParseBlock(parser *Parser, tokenizer *Tokenizer)
+internal variable_iterator ParseBlock(parser *Parser, tokenizer *Tokenizer)
 {
     variable_scope Scope = BeginScope(Parser);
 
@@ -961,17 +1000,14 @@ internal variable_scope ParseBlock(parser *Parser, tokenizer *Tokenizer)
 
             if(Value)
             {
-                variable_binding *Original = GetVariableInScope(Parser, Scope, NameToken.Text);
-                if(Original)
+                variable_binding *PreviousVariable = GetVariableInScope(Parser, Scope, NameToken.Text);
+                if(PreviousVariable)
                 {
                     Error(Tokenizer, NameToken, "Redeclaration of variable");
-//                            Error(Tokenizer, NameToken, "Original variable was declared here");
+//                            Error(Tokenizer, NameToken, "Previous variable was declared here");
                 }
 
                 variable_binding *Variable = AddVariable(Parser, NameToken.Text, Value);
-                Variable->ID = AllocateVariableID(Parser);
-
-                UpdateScope(Parser, &Scope);
 
                 RequireToken(Tokenizer, Token_Semicolon);
             }
@@ -982,25 +1018,27 @@ internal variable_scope ParseBlock(parser *Parser, tokenizer *Tokenizer)
         }
         else
         {
-            ParseStatement(Parser, Tokenizer, &Scope);
+            ParseStatement(Parser, Tokenizer, Scope);
         }
     }
 
-    UpdateScope(Parser, &Scope);
-    EndScope(Parser, Scope);
+    variable_iterator Result = IterateVariablesIn(Parser, Scope);
 
     DebugScope(Parser, Scope);
+    printf("--- End scope ---\n");
+
+    EndScope(Parser, Scope);
 
     // TODO(alex): Since we now return the scope here, make ParseStatement
     // iterate the scope and delete all of the variables it contains, since
     // ParseIF directly calls into ParseBlock and can merge the scopes instead
     // of just deleting them.
 
-    return Scope;
+    return Result;
 }
 
 // NOTE(alex): Parse expression being used at statement level
-internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer, variable_scope *Scope)
+internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer, variable_scope Scope)
 {
     node *Result = 0;
 
@@ -1017,19 +1055,20 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer, va
 
         node *RHS = ParseExpression(Parser, Tokenizer);
 
-        variable_binding *Variable = GetVariableInScope(Parser, *Scope, NameToken.Text);
+        variable_binding *Variable = GetVariableInScope(Parser, Scope, NameToken.Text);
         if(Variable)
         {
             RemoveReference(Parser, Variable->Value);
             Variable->Value = RHS;
             AddReference(Parser, Variable->Value);
         }
+        // TODO(alex): This is a little bit wasteful, as we first iterate the current scope
+        // and then iterate the entire stack again. We could just start at the end of the
+        // current scope.
         else if(Variable = GetVariable(Parser, NameToken.Text))
         {
             variable_binding *NewVariable = AddVariable(Parser, NameToken.Text, RHS);
-            NewVariable->ID = Variable->ID;
             NewVariable->Original = Variable;
-            UpdateScope(Parser, Scope);
         }
         else
         {
@@ -1088,7 +1127,7 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer, va
     return Result;
 }
 
-internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scope *Scope)
+internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scope Scope)
 {
     if(OptionalToken(Tokenizer, Token_OpenBrace))
     {
@@ -1110,25 +1149,23 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scop
             node *TrueBranch = Peephole(Parser, GetOrCreateProj(Parser, IF, 0, BundleZ("true")));
             node *FalseBranch = Peephole(Parser, GetOrCreateProj(Parser, IF, 1, BundleZ("false")));
 
-            variable_binding *TopOfBase = Parser->MostRecentVariable;
-
             Parser->ControlNode = TrueBranch;
             RequireToken(Tokenizer, Token_OpenBrace);
-            variable_scope TopOfTrueBranch = ParseBlock(Parser, Tokenizer);
+            variable_iterator TrueScope = ParseBlock(Parser, Tokenizer);
 
             Parser->ControlNode = FalseBranch;
-            variable_scope TopOfFalseBranch = BeginScope(Parser);
+            variable_iterator FalseScope = IterateVariables(Parser);
             if(OptionalToken(Tokenizer, "else"))
             {
                 RequireToken(Tokenizer, Token_OpenBrace);
-                TopOfFalseBranch = ParseBlock(Parser, Tokenizer);
+                FalseScope = ParseBlock(Parser, Tokenizer);
             }
 
             node *Region = GetOrCreateRegion(Parser,
                                              Parser->ControlNode->Control.Prev,
                                              TrueBranch, FalseBranch);
 
-            // Parser->MostRecentVariable = MergeScopes(Parser, Region, TopOfBase, TopOfTrueBranch, TopOfFalseBranch);
+            MergeScopes(Parser, Region, TrueScope, FalseScope);
             Parser->ControlNode = Region;
         }
         else
