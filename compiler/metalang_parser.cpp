@@ -106,17 +106,34 @@ internal void DebugNode(node *Node)
 
 internal variable_definition *AllocateVariable(parser *Parser)
 {
-    Assert(Parser->VariableCount < ArrayCount(Parser->Variables));
+    if(!Parser->FirstFreeVariable)
+    {
+        Parser->FirstFreeVariable = PushStruct(&Parser->Arena, variable_definition, NoClear());
+        Parser->FirstFreeVariable->NextFree = 0;
+    }
 
-    variable_definition *Result = Parser->Variables + Parser->VariableCount++;
+    variable_definition *Result = Parser->FirstFreeVariable;
+    Parser->FirstFreeVariable = Result->NextFree;
+
+    return Result;
+}
+
+internal variable_id AllocateVariableID(parser *Parser)
+{
+    variable_id Result;
+    Result.Value = Parser->NextVariableID++;
+    return Result;
+}
+
+internal b32 IDsAreEqual(variable_id A, variable_id B)
+{
+    b32 Result = (A.Value == B.Value);
     return Result;
 }
 
 internal variable_definition *AddVariable(parser *Parser, string Name, node *Value)
 {
-    Assert(Parser->VariableCount < ArrayCount(Parser->Variables));
-
-    variable_definition *Variable = Parser->Variables + Parser->VariableCount++;
+    variable_definition *Variable = AllocateVariable(Parser);
     Variable->Name = Name;
     Variable->NameHash = StringHashOf(Name);
     Variable->Value = Value;
@@ -128,9 +145,28 @@ internal variable_definition *AddVariable(parser *Parser, string Name, node *Val
     return Variable;
 }
 
+internal variable_definition *GetVariable(variable_definition *Start, variable_id ID)
+{
+    variable_definition *Result = 0;
+
+    for(variable_definition *TestVariable = Start;
+        TestVariable;
+        TestVariable = TestVariable->Prev)
+    {
+        if(IDsAreEqual(TestVariable->ID, ID))
+        {
+            Result = TestVariable;
+            break;
+        }
+    }
+
+    return Result;
+}
+
 internal variable_definition *GetVariable(variable_definition *Start, string Name, u32 NameHash)
 {
     variable_definition *Result = 0;
+
     for(variable_definition *TestVariable = Start;
         TestVariable;
         TestVariable = TestVariable->Prev)
@@ -293,50 +329,45 @@ internal void RemoveReference(parser *Parser, node *Node)
 }
 
 internal variable_definition *MergeScopes(parser *Parser, node *Region,
+                                          variable_definition *Base,
                                           variable_definition *True,
                                           variable_definition *False)
 {
-    printf("--- True branch ---\n");
-    for(variable_definition *Variable = True;
+    variable_definition *Result = Base;
+
+    for(variable_definition *Variable = Base;
         Variable;
         Variable = Variable->Prev)
     {
-        printf("%.*s = ", ExpandString(Variable->Name));
-        DebugNode(Variable->Value);
-        printf("\n");
-    }
-    printf("--- False branch ---\n");
-    for(variable_definition *Variable = False;
-        Variable;
-        Variable = Variable->Prev)
-    {
-        printf("%.*s = ", ExpandString(Variable->Name));
-        DebugNode(Variable->Value);
-        printf("\n");
-    }
-    printf("--- End ---\n");
+        variable_definition *TrueVar = GetVariable(True, Variable->ID);
+        variable_definition *FalseVar = GetVariable(False, Variable->ID);
 
-    variable_definition *Result = Parser->MostRecentVariable;
+        node *MergedValue = 0;
 
-    for(variable_definition *Variable = Result;
-        Variable;
-        Variable = Variable->Prev)
-    {
-        variable_definition *TrueVar = GetVariable(True, Variable->Name, Variable->NameHash);
-        variable_definition *FalseVar = GetVariable(False, Variable->Name, Variable->NameHash);
-
-        if(TrueVar && FalseVar)
+        if(TrueVar || FalseVar)
         {
-            if(TrueVar->Value != FalseVar->Value)
+            node *TVal = TrueVar ? TrueVar->Value : Variable->Value;
+            node *FVal = FalseVar ? FalseVar->Value : Variable->Value;
+
+            if(TVal != FVal)
             {
-                node *Phi = GetOrCreatePhi(Parser, Region, TrueVar->Value, FalseVar->Value);
-                variable_definition *Merged = AllocateVariable(Parser);
-                Merged->Name = Variable->Name;
-                Merged->NameHash = Variable->NameHash;
-                Merged->Value = Phi;
-                Merged->Prev = Result;
-                Result = Merged;
+                MergedValue = GetOrCreatePhi(Parser, Region, TVal, FVal);
             }
+            else
+            {
+                MergedValue = TVal;
+            }
+        }
+
+        if(MergedValue)
+        {
+            variable_definition *Merged = AllocateVariable(Parser);
+            Merged->Name = Variable->Name;
+            Merged->NameHash = Variable->NameHash;
+            Merged->ID = Variable->ID;
+            Merged->Value = MergedValue;
+            Merged->Prev = Result;
+            Result = Merged;
         }
     }
 
@@ -391,7 +422,10 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 
     Parser->FirstFreeNode = 0;
     Parser->NextNodeID = 0;
-    Parser->VariableCount = 0;
+
+    Parser->MostRecentVariable = 0;
+    Parser->FirstFreeVariable = 0;
+    Parser->NextVariableID = 0;
 
     Parser->StartNode = Parser->ControlNode = GetOrCreateNode(Parser, Node_Start);
     Parser->EndNode = GetOrCreateNode(Parser, Node_End);
@@ -403,7 +437,8 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 #else
     Value->DataType = GetIntegerType(2);
 #endif
-    AddVariable(Parser, ARG0, Value);
+    variable_definition *Variable = AddVariable(Parser, ARG0, Value);
+    Variable->ID = AllocateVariableID(Parser);
 
     while(Parsing(Tokenizer))
     {
@@ -838,7 +873,6 @@ internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)
 
 internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
 {
-    u32 SavedVariableCount = Parser->VariableCount;
     variable_definition *SavedVariable = Parser->MostRecentVariable;
 
     while(Parsing(Tokenizer))
@@ -883,6 +917,7 @@ internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
             if(Value)
             {
                 variable_definition *Variable = AddVariable(Parser, NameToken.Text, Value);
+                Variable->ID = AllocateVariableID(Parser);
 
                 for(variable_definition *TestVariable = Variable->Prev;
                     TestVariable && (TestVariable != SavedVariable);
@@ -895,21 +930,6 @@ internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
 //                            Error(Tokenizer, NameToken, "Original variable was declared here");
                     }
                 }
-
-#if 0
-                for(u32 VariableIndex = SavedVariableCount;
-                    VariableIndex < (Parser->VariableCount - 1);
-                    ++VariableIndex)
-                {
-                    variable_definition *TestVariable = Parser->Variables + VariableIndex;
-                    if((Variable->NameHash == TestVariable->NameHash) &&
-                       StringsAreEqual(Variable->Name, TestVariable->Name))
-                    {
-                        Error(Tokenizer, NameToken, "Redeclaration of variable");
-//                            Error(Tokenizer, NameToken, "Original variable was declared here");
-                    }
-                }
-#endif
 
                 RequireToken(Tokenizer, Token_Semicolon);
             }
@@ -924,7 +944,8 @@ internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
         }
     }
 
-#if 0
+#if 1
+    printf("--- Scope closed ---\n");
     for(variable_definition *Variable = Parser->MostRecentVariable;
         Variable != SavedVariable;
         Variable = Variable->Prev)
@@ -935,24 +956,10 @@ internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
 
         // RemoveReference(Parser, Variable->Value);
     }
-#endif
-
-#if 0
-    for(u32 VariableIndex = SavedVariableCount;
-        VariableIndex < Parser->VariableCount;
-        ++VariableIndex)
-    {
-        variable_definition *Variable = Parser->Variables + VariableIndex;
-        printf("%.*s = ", ExpandString(Variable->Name));
-        DebugNode(Variable->Value);
-        printf("\n");
-
-        RemoveReference(Parser, Variable->Value);
-    }
+    printf("--- End ---\n");
 #endif
 
     variable_definition *Result = Parser->MostRecentVariable;
-    // Parser->VariableCount = SavedVariableCount;
     Parser->MostRecentVariable = SavedVariable;
 
     return Result;
@@ -981,7 +988,12 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
         }
 
         node *RHS = ParseExpression(Parser, Tokenizer);
-        AddVariable(Parser, NameToken.Text, RHS);
+        if(Variable)
+        {
+            variable_definition *Assignment = AddVariable(Parser, NameToken.Text, RHS);
+            Assignment->ID = Variable->ID;
+        }
+
 #if 0
         if(Variable)
         {
@@ -1041,6 +1053,8 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
             node *TrueBranch = Peephole(Parser, GetOrCreateProj(Parser, IF, 0, BundleZ("true")));
             node *FalseBranch = Peephole(Parser, GetOrCreateProj(Parser, IF, 1, BundleZ("false")));
 
+            variable_definition *TopOfBase = Parser->MostRecentVariable;
+
             Parser->ControlNode = TrueBranch;
             RequireToken(Tokenizer, Token_OpenBrace);
             variable_definition *TopOfTrueBranch = ParseBlock(Parser, Tokenizer);
@@ -1057,19 +1071,8 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
                                              Parser->ControlNode->Control.Prev,
                                              TrueBranch, FalseBranch);
 
-            Parser->MostRecentVariable = MergeScopes(Parser, Region, TopOfTrueBranch, TopOfFalseBranch);
+            Parser->MostRecentVariable = MergeScopes(Parser, Region, TopOfBase, TopOfTrueBranch, TopOfFalseBranch);
             Parser->ControlNode = Region;
-
-            printf("--- Variable bindings ---\n");
-            for(variable_definition *Variable = Parser->MostRecentVariable;
-                Variable;
-                Variable = Variable->Prev)
-            {
-                printf("%.*s = ", ExpandString(Variable->Name));
-                DebugNode(Variable->Value);
-                printf("\n");
-            }
-            printf("--- End ---\n");
         }
         else
         {
@@ -1136,6 +1139,8 @@ internal void ParseFile(parser *Parser, tokenizer Tokenizer_)
 
             if(GotParameterList && OptionalToken(Tokenizer, Token_OpenBrace))
             {
+                printf("--- Begin procedure %.*s ---\n", ExpandString(NameToken.Text));
+
                 ParseBlock(Parser, Tokenizer);
 
                 Parser->EndNode->Control.Prev = Parser->ControlNode;
@@ -1149,6 +1154,10 @@ internal void ParseFile(parser *Parser, tokenizer Tokenizer_)
                     DebugNode(Node);
                     printf("\n");
                 }
+
+                Parser->ControlNode = Parser->StartNode;
+
+                printf("--- End procedure %.*s ---\n", ExpandString(NameToken.Text));
             }
         }
     }

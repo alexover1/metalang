@@ -53,13 +53,22 @@ struct routine_definition
     routine_definition *NextInHash;
 };
 
+struct variable_id
+{
+    u32 Value;
+};
+
 struct variable_definition
 {
     string Name;
     u32 NameHash;
-    u32 Flags;
+    variable_id ID;
     node *Value;
-    variable_definition *Prev;
+    union
+    {
+        variable_definition *Prev;
+        variable_definition *NextFree;
+    };
 };
 
 struct parser
@@ -76,9 +85,7 @@ struct parser
 
     variable_definition *MostRecentVariable;
     variable_definition *FirstFreeVariable;
-
-    variable_definition Variables[64];
-    u32 VariableCount;
+    u32 NextVariableID;
 
     routine_definition RoutineSentinel;
     routine_definition *RoutineHash[4096];
