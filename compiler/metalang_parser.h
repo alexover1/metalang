@@ -58,17 +58,24 @@ struct variable_id
     u32 Value;
 };
 
-struct variable_definition
+struct variable_binding
 {
     string Name;
     u32 NameHash;
     variable_id ID;
     node *Value;
+    variable_binding *Original;
     union
     {
-        variable_definition *Prev;
-        variable_definition *NextFree;
+        variable_binding *Prev;
+        variable_binding *NextFree;
     };
+};
+
+struct variable_scope
+{
+    variable_binding *Head;
+    variable_binding *Tail;
 };
 
 struct parser
@@ -83,8 +90,8 @@ struct parser
     node *FirstFreeNode;
     u32 NextNodeID;
 
-    variable_definition *MostRecentVariable;
-    variable_definition *FirstFreeVariable;
+    variable_binding *MostRecentVariable;
+    variable_binding *FirstFreeVariable;
     u32 NextVariableID;
 
     routine_definition RoutineSentinel;
@@ -94,7 +101,7 @@ struct parser
 };
 
 internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer);
-internal void ParseStatement(parser *Parser, tokenizer *Tokenizer);
+internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scope *Scope);
 
 internal void AddReference(parser *Parser, node *Node);
 internal void RemoveReference(parser *Parser, node *Node);

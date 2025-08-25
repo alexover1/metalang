@@ -104,16 +104,18 @@ internal void DebugNode(node *Node)
     }
 }
 
-internal variable_definition *AllocateVariable(parser *Parser)
+internal variable_binding *AllocateVariable(parser *Parser)
 {
     if(!Parser->FirstFreeVariable)
     {
-        Parser->FirstFreeVariable = PushStruct(&Parser->Arena, variable_definition, NoClear());
+        Parser->FirstFreeVariable = PushStruct(&Parser->Arena, variable_binding, NoClear());
         Parser->FirstFreeVariable->NextFree = 0;
     }
 
-    variable_definition *Result = Parser->FirstFreeVariable;
+    variable_binding *Result = Parser->FirstFreeVariable;
     Parser->FirstFreeVariable = Result->NextFree;
+
+    ZeroStruct(*Result);
 
     return Result;
 }
@@ -131,9 +133,9 @@ internal b32 IDsAreEqual(variable_id A, variable_id B)
     return Result;
 }
 
-internal variable_definition *AddVariable(parser *Parser, string Name, node *Value)
+internal variable_binding *AddVariable(parser *Parser, string Name, node *Value)
 {
-    variable_definition *Variable = AllocateVariable(Parser);
+    variable_binding *Variable = AllocateVariable(Parser);
     Variable->Name = Name;
     Variable->NameHash = StringHashOf(Name);
     Variable->Value = Value;
@@ -145,11 +147,11 @@ internal variable_definition *AddVariable(parser *Parser, string Name, node *Val
     return Variable;
 }
 
-internal variable_definition *GetVariable(variable_definition *Start, variable_id ID)
+internal variable_binding *GetVariable(variable_binding *Start, variable_id ID)
 {
-    variable_definition *Result = 0;
+    variable_binding *Result = 0;
 
-    for(variable_definition *TestVariable = Start;
+    for(variable_binding *TestVariable = Start;
         TestVariable;
         TestVariable = TestVariable->Prev)
     {
@@ -163,11 +165,11 @@ internal variable_definition *GetVariable(variable_definition *Start, variable_i
     return Result;
 }
 
-internal variable_definition *GetVariable(variable_definition *Start, string Name, u32 NameHash)
+internal variable_binding *GetVariable(variable_binding *Start, string Name, u32 NameHash)
 {
-    variable_definition *Result = 0;
+    variable_binding *Result = 0;
 
-    for(variable_definition *TestVariable = Start;
+    for(variable_binding *TestVariable = Start;
         TestVariable;
         TestVariable = TestVariable->Prev)
     {
@@ -182,10 +184,61 @@ internal variable_definition *GetVariable(variable_definition *Start, string Nam
     return Result;
 }
 
-internal variable_definition *GetVariable(parser *Parser, string Name)
+internal variable_binding *GetVariable(parser *Parser, string Name)
 {
-    variable_definition *Result = GetVariable(Parser->MostRecentVariable, Name, StringHashOf(Name));
+    variable_binding *Result = GetVariable(Parser->MostRecentVariable, Name, StringHashOf(Name));
     return Result;
+}
+
+internal variable_binding *GetVariableInScope(parser *Parser, variable_scope Scope, string Name)
+{
+    variable_binding *Result = 0;
+
+    u32 NameHash = StringHashOf(Name);
+    for(variable_binding *Variable = Scope.Head;
+        Variable != Scope.Tail;
+        Variable = Variable->Prev)
+    {
+        if((Variable->NameHash == NameHash) &&
+           StringsAreEqual(Variable->Name, Name))
+        {
+            Result = Variable;
+            break;
+        }
+    }
+
+    return Result;
+}
+
+internal variable_scope BeginScope(parser *Parser)
+{
+    variable_scope Result = {};
+
+    Result.Head = Result.Tail = Parser->MostRecentVariable;
+
+    return Result;
+}
+
+internal void UpdateScope(parser *Parser, variable_scope *Scope)
+{
+    Scope->Head = Parser->MostRecentVariable;
+}
+
+internal void EndScope(parser *Parser, variable_scope Scope)
+{
+    Parser->MostRecentVariable = Scope.Tail;
+}
+
+internal void DebugScope(parser *Parser, variable_scope Scope)
+{
+    for(variable_binding *Variable = Scope.Head;
+        Variable != Scope.Tail;
+        Variable = Variable->Prev)
+    {
+        printf("%.*s = ", ExpandString(Variable->Name));
+        DebugNode(Variable->Value);
+        printf("\n");
+    }
 }
 
 internal node *GetOrCreateNodeInternal(parser *Parser, node_type Type, u32 OperandCount, node **Operands)
@@ -328,19 +381,17 @@ internal void RemoveReference(parser *Parser, node *Node)
     }
 }
 
-internal variable_definition *MergeScopes(parser *Parser, node *Region,
-                                          variable_definition *Base,
-                                          variable_definition *True,
-                                          variable_definition *False)
+internal variable_binding *MergeScopes(parser *Parser, node *Region, variable_binding *Base,
+                                       variable_binding *True, variable_binding *False)
 {
-    variable_definition *Result = Base;
+    variable_binding *Result = Base;
 
-    for(variable_definition *Variable = Base;
+    for(variable_binding *Variable = Base;
         Variable;
         Variable = Variable->Prev)
     {
-        variable_definition *TrueVar = GetVariable(True, Variable->ID);
-        variable_definition *FalseVar = GetVariable(False, Variable->ID);
+        variable_binding *TrueVar = GetVariable(True, Variable->ID);
+        variable_binding *FalseVar = GetVariable(False, Variable->ID);
 
         node *MergedValue = 0;
 
@@ -361,11 +412,13 @@ internal variable_definition *MergeScopes(parser *Parser, node *Region,
 
         if(MergedValue)
         {
-            variable_definition *Merged = AllocateVariable(Parser);
+            variable_binding *Merged = AllocateVariable(Parser);
             Merged->Name = Variable->Name;
             Merged->NameHash = Variable->NameHash;
             Merged->ID = Variable->ID;
             Merged->Value = MergedValue;
+            AddReference(Parser, MergedValue);
+
             Merged->Prev = Result;
             Result = Merged;
         }
@@ -437,7 +490,7 @@ internal parser *ParseTopLevelRoutines(tokenizer Tokenizer_)
 #else
     Value->DataType = GetIntegerType(2);
 #endif
-    variable_definition *Variable = AddVariable(Parser, ARG0, Value);
+    variable_binding *Variable = AddVariable(Parser, ARG0, Value);
     Variable->ID = AllocateVariableID(Parser);
 
     while(Parsing(Tokenizer))
@@ -518,14 +571,6 @@ internal node *DeadCodeEliminate(parser *Parser, node *Old, node *New)
     }
 
     return New;
-}
-
-internal b32 PhiHasSameOp(node *Phi)
-{
-    b32 Result = true;
-
-
-    return Result;
 }
 
 internal node *Idealize(parser *Parser, node *Node)
@@ -703,7 +748,7 @@ internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
 
         case Token_Identifier:
         {
-            variable_definition *Variable = GetVariable(Parser, Token.Text);
+            variable_binding *Variable = GetVariable(Parser, Token.Text);
             if(Variable)
             {
                 Result = Variable->Value;
@@ -871,9 +916,9 @@ internal node *ParseExpression(parser *Parser, tokenizer *Tokenizer)
     return Result;
 }
 
-internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
+internal variable_scope ParseBlock(parser *Parser, tokenizer *Tokenizer)
 {
-    variable_definition *SavedVariable = Parser->MostRecentVariable;
+    variable_scope Scope = BeginScope(Parser);
 
     while(Parsing(Tokenizer))
     {
@@ -916,20 +961,17 @@ internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
 
             if(Value)
             {
-                variable_definition *Variable = AddVariable(Parser, NameToken.Text, Value);
+                variable_binding *Original = GetVariableInScope(Parser, Scope, NameToken.Text);
+                if(Original)
+                {
+                    Error(Tokenizer, NameToken, "Redeclaration of variable");
+//                            Error(Tokenizer, NameToken, "Original variable was declared here");
+                }
+
+                variable_binding *Variable = AddVariable(Parser, NameToken.Text, Value);
                 Variable->ID = AllocateVariableID(Parser);
 
-                for(variable_definition *TestVariable = Variable->Prev;
-                    TestVariable && (TestVariable != SavedVariable);
-                    TestVariable = TestVariable->Prev)
-                {
-                    if((Variable->NameHash == TestVariable->NameHash) &&
-                       StringsAreEqual(Variable->Name, TestVariable->Name))
-                    {
-                        Error(Tokenizer, NameToken, "Redeclaration of variable");
-//                            Error(Tokenizer, NameToken, "Original variable was declared here");
-                    }
-                }
+                UpdateScope(Parser, &Scope);
 
                 RequireToken(Tokenizer, Token_Semicolon);
             }
@@ -940,33 +982,20 @@ internal variable_definition *ParseBlock(parser *Parser, tokenizer *Tokenizer)
         }
         else
         {
-            ParseStatement(Parser, Tokenizer);
+            ParseStatement(Parser, Tokenizer, &Scope);
         }
     }
 
-#if 1
-    printf("--- Scope closed ---\n");
-    for(variable_definition *Variable = Parser->MostRecentVariable;
-        Variable != SavedVariable;
-        Variable = Variable->Prev)
-    {
-        printf("%.*s = ", ExpandString(Variable->Name));
-        DebugNode(Variable->Value);
-        printf("\n");
+    UpdateScope(Parser, &Scope);
+    EndScope(Parser, Scope);
 
-        // RemoveReference(Parser, Variable->Value);
-    }
-    printf("--- End ---\n");
-#endif
+    DebugScope(Parser, Scope);
 
-    variable_definition *Result = Parser->MostRecentVariable;
-    Parser->MostRecentVariable = SavedVariable;
-
-    return Result;
+    return Scope;
 }
 
 // NOTE(alex): Parse expression being used at statement level
-internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
+internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer, variable_scope *Scope)
 {
     node *Result = 0;
 
@@ -981,7 +1010,29 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
         token NameToken = GetToken(Tokenizer);
         token EqualsToken = GetToken(Tokenizer);
 
-        variable_definition *Variable = GetVariable(Parser, NameToken.Text);
+        node *RHS = ParseExpression(Parser, Tokenizer);
+
+        variable_binding *Variable = GetVariableInScope(Parser, *Scope, NameToken.Text);
+        if(Variable)
+        {
+            RemoveReference(Parser, Variable->Value);
+            Variable->Value = RHS;
+            AddReference(Parser, Variable->Value);
+        }
+        else if(Variable = GetVariable(Parser, NameToken.Text))
+        {
+            variable_binding *NewVariable = AddVariable(Parser, NameToken.Text, RHS);
+            NewVariable->ID = Variable->ID;
+            NewVariable->Original = Variable;
+            UpdateScope(Parser, Scope);
+        }
+        else
+        {
+            Error(Tokenizer, NameToken, "Undeclared variable");
+        }
+
+#if 0
+        variable_binding *Variable = GetVariable(Parser, NameToken.Text);
         if(!Variable)
         {
             Error(Tokenizer, NameToken, "Undeclared variable");
@@ -990,9 +1041,10 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
         node *RHS = ParseExpression(Parser, Tokenizer);
         if(Variable)
         {
-            variable_definition *Assignment = AddVariable(Parser, NameToken.Text, RHS);
+            variable_binding *Assignment = AddVariable(Parser, NameToken.Text, RHS);
             Assignment->ID = Variable->ID;
         }
+#endif
 
 #if 0
         if(Variable)
@@ -1031,7 +1083,7 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer)
     return Result;
 }
 
-internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
+internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scope *Scope)
 {
     if(OptionalToken(Tokenizer, Token_OpenBrace))
     {
@@ -1053,14 +1105,14 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
             node *TrueBranch = Peephole(Parser, GetOrCreateProj(Parser, IF, 0, BundleZ("true")));
             node *FalseBranch = Peephole(Parser, GetOrCreateProj(Parser, IF, 1, BundleZ("false")));
 
-            variable_definition *TopOfBase = Parser->MostRecentVariable;
+            variable_binding *TopOfBase = Parser->MostRecentVariable;
 
             Parser->ControlNode = TrueBranch;
             RequireToken(Tokenizer, Token_OpenBrace);
-            variable_definition *TopOfTrueBranch = ParseBlock(Parser, Tokenizer);
+            variable_scope TopOfTrueBranch = ParseBlock(Parser, Tokenizer);
 
             Parser->ControlNode = FalseBranch;
-            variable_definition *TopOfFalseBranch = Parser->MostRecentVariable;
+            variable_scope TopOfFalseBranch = BeginScope(Parser);
             if(OptionalToken(Tokenizer, "else"))
             {
                 RequireToken(Tokenizer, Token_OpenBrace);
@@ -1071,7 +1123,7 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
                                              Parser->ControlNode->Control.Prev,
                                              TrueBranch, FalseBranch);
 
-            Parser->MostRecentVariable = MergeScopes(Parser, Region, TopOfBase, TopOfTrueBranch, TopOfFalseBranch);
+            // Parser->MostRecentVariable = MergeScopes(Parser, Region, TopOfBase, TopOfTrueBranch, TopOfFalseBranch);
             Parser->ControlNode = Region;
         }
         else
@@ -1085,7 +1137,7 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer)
     }
     else
     {
-        ParseExpressionStatement(Parser, Tokenizer);
+        ParseExpressionStatement(Parser, Tokenizer, Scope);
     }
 }
 
