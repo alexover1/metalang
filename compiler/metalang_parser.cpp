@@ -776,6 +776,9 @@ internal void MergeScopes(parser *Parser, node *Region,
             AddReference(Parser, Variable->Value);
         }
     }
+
+    FreeVariables(Parser, TrueScope);
+    FreeVariables(Parser, FalseScope);
 }
 
 internal node *ParsePrimaryExpression(parser *Parser, tokenizer *Tokenizer)
@@ -1145,8 +1148,6 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scop
             Parser->ControlNode = Region;
 
             MergeScopes(Parser, Region, TrueScope, FalseScope);
-            FreeVariables(Parser, TrueScope);
-            FreeVariables(Parser, FalseScope);
         }
         else
         {
