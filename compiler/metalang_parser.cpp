@@ -104,6 +104,42 @@ internal void DebugNode(node *Node)
     }
 }
 
+internal variable_binding *AllocateVariable(parser *Parser)
+{
+    if(!Parser->FirstFreeVariable)
+    {
+        Parser->FirstFreeVariable = PushStruct(&Parser->Arena, variable_binding, NoClear());
+        Parser->FirstFreeVariable->NextFree = 0;
+    }
+
+    variable_binding *Result = Parser->FirstFreeVariable;
+    Parser->FirstFreeVariable = Result->NextFree;
+
+    ZeroStruct(*Result);
+
+    return Result;
+}
+
+internal variable_binding *AddVariable(parser *Parser, string Name, node *Value)
+{
+    variable_binding *Variable = AllocateVariable(Parser);
+    Variable->Name = Name;
+    Variable->NameHash = StringHashOf(Name);
+    Variable->Value = Value;
+    AddReference(Parser, Value);
+
+    Variable->Prev = Parser->MostRecentVariable;
+    Parser->MostRecentVariable = Variable;
+
+    return Variable;
+}
+
+inline void FreeVariable(parser *Parser, variable_binding *Variable)
+{
+    Variable->NextFree = Parser->FirstFreeVariable;
+    Parser->FirstFreeVariable = Variable;
+}
+
 struct variable_iterator
 {
     variable_binding *At;
@@ -154,34 +190,18 @@ inline void EndScope(parser *Parser, variable_scope Scope)
     Parser->MostRecentVariable = Scope.End;
 }
 
-internal variable_binding *AllocateVariable(parser *Parser)
+inline void FreeVariables(parser *Parser, variable_iterator Range)
 {
-    if(!Parser->FirstFreeVariable)
+    variable_binding *At = Range.At;
+    variable_binding *End = Range.End;
+
+    while(At != End)
     {
-        Parser->FirstFreeVariable = PushStruct(&Parser->Arena, variable_binding, NoClear());
-        Parser->FirstFreeVariable->NextFree = 0;
+        variable_binding *Prev = At->Prev;
+        RemoveReference(Parser, At->Value);
+        FreeVariable(Parser, At);
+        At = Prev;
     }
-
-    variable_binding *Result = Parser->FirstFreeVariable;
-    Parser->FirstFreeVariable = Result->NextFree;
-
-    ZeroStruct(*Result);
-
-    return Result;
-}
-
-internal variable_binding *AddVariable(parser *Parser, string Name, node *Value)
-{
-    variable_binding *Variable = AllocateVariable(Parser);
-    Variable->Name = Name;
-    Variable->NameHash = StringHashOf(Name);
-    Variable->Value = Value;
-    AddReference(Parser, Value);
-
-    Variable->Prev = Parser->MostRecentVariable;
-    Parser->MostRecentVariable = Variable;
-
-    return Variable;
 }
 
 internal variable_binding *GetVariable(parser *Parser, string Name, u32 NameHash)
@@ -1015,11 +1035,6 @@ internal variable_iterator ParseBlock(parser *Parser, tokenizer *Tokenizer)
 
     EndScope(Parser, Scope);
 
-    // TODO(alex): Since we now return the scope here, make ParseStatement
-    // iterate the scope and delete all of the variables it contains, since
-    // ParseIF directly calls into ParseBlock and can merge the scopes instead
-    // of just deleting them.
-
     return Result;
 }
 
@@ -1060,30 +1075,6 @@ internal node *ParseExpressionStatement(parser *Parser, tokenizer *Tokenizer, va
         {
             Error(Tokenizer, NameToken, "Undeclared variable");
         }
-
-#if 0
-        variable_binding *Variable = GetVariable(Parser, NameToken.Text);
-        if(!Variable)
-        {
-            Error(Tokenizer, NameToken, "Undeclared variable");
-        }
-
-        node *RHS = ParseExpression(Parser, Tokenizer);
-        if(Variable)
-        {
-            variable_binding *Assignment = AddVariable(Parser, NameToken.Text, RHS);
-            Assignment->ID = Variable->ID;
-        }
-#endif
-
-#if 0
-        if(Variable)
-        {
-            RemoveReference(Parser, Variable->Value);
-            Variable->Value = RHS;
-            AddReference(Parser, Variable->Value);
-        }
-#endif
     }
     else
     {
@@ -1117,7 +1108,8 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scop
 {
     if(OptionalToken(Tokenizer, Token_OpenBrace))
     {
-        ParseBlock(Parser, Tokenizer);
+        variable_iterator Range = ParseBlock(Parser, Tokenizer);
+        FreeVariables(Parser, Range);
     }
     else if(OptionalToken(Tokenizer, Token_Semicolon))
     {
@@ -1150,9 +1142,11 @@ internal void ParseStatement(parser *Parser, tokenizer *Tokenizer, variable_scop
             node *Region = GetOrCreateRegion(Parser,
                                              Parser->ControlNode->Control.Prev,
                                              TrueBranch, FalseBranch);
+            Parser->ControlNode = Region;
 
             MergeScopes(Parser, Region, TrueScope, FalseScope);
-            Parser->ControlNode = Region;
+            FreeVariables(Parser, TrueScope);
+            FreeVariables(Parser, FalseScope);
         }
         else
         {
@@ -1221,6 +1215,8 @@ internal void ParseFile(parser *Parser, tokenizer Tokenizer_)
             {
                 printf("--- Begin procedure %.*s ---\n", ExpandString(NameToken.Text));
 
+                u32 StartNodeCount = Parser->NextNodeID;
+
                 ParseBlock(Parser, Tokenizer);
 
                 Parser->EndNode->Control.Prev = Parser->ControlNode;
@@ -1237,7 +1233,10 @@ internal void ParseFile(parser *Parser, tokenizer Tokenizer_)
 
                 Parser->ControlNode = Parser->StartNode;
 
-                printf("--- End procedure %.*s ---\n", ExpandString(NameToken.Text));
+                u32 EndNodeCount = Parser->NextNodeID;
+                u32 Difference = EndNodeCount - StartNodeCount;
+
+                printf("--- End procedure %.*s (%u nodes) ---\n", ExpandString(NameToken.Text), Difference);
             }
         }
     }
